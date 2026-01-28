@@ -18,7 +18,6 @@ A **Jupyter notebook** provides an interactive form (file upload, checkboxes, ru
 **Run in browser (no install):**  
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/PDBeurope/mmcif-metadata-import/HEAD?labpath=metadata_import.ipynb)  
 Click the badge to open the notebook on [mybinder.org](https://mybinder.org) ([repo](https://github.com/PDBeurope/mmcif-metadata-import)). The first launch may take a few minutes while the environment builds (gemmi install). **Download any output files** from the notebook links before closing the tab—Binder sessions are temporary.  
-**Note:** Binder only works with **public** repos. If [mmcif-metadata-import](https://github.com/PDBeurope/mmcif-metadata-import) is private, the badge link will not work; use **Run locally** instead.
 
 **Run locally:**  
 1. Install notebook dependencies:
