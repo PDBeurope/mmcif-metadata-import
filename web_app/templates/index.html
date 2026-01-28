@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDBe mmCIF Metadata Importer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        
+        .form-container {
+            padding: 40px;
+        }
+        
+        .form-section {
+            margin-bottom: 30px;
+        }
+        
+        .form-section h2 {
+            color: #333;
+            font-size: 1.4em;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+        
+        .required {
+            color: #e74c3c;
+        }
+        
+        input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            background: #f8f9fa;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        input[type="file"]:hover {
+            background: #e9ecef;
+            border-color: #764ba2;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .checkbox-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 10px;
+        }
+        
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+        
+        .checkbox-item:hover {
+            background: #e9ecef;
+            transform: translateY(-2px);
+        }
+        
+        .checkbox-item input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            margin-right: 12px;
+            cursor: pointer;
+        }
+        
+        .checkbox-item label {
+            margin: 0;
+            cursor: pointer;
+            flex: 1;
+        }
+        
+        .help-text {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+            font-style: italic;
+        }
+        
+        .submit-btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.2em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 20px;
+        }
+        
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .submit-btn:active {
+            transform: translateY(0);
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .alert-error {
+            background: #fee;
+            border: 1px solid #fcc;
+            color: #c33;
+        }
+        
+        .alert-success {
+            background: #efe;
+            border: 1px solid #cfc;
+            color: #3c3;
+        }
+        
+        .method-group {
+            background: #f0f4ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .method-group h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+        
+        .optional-group {
+            background: #fff9f0;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .optional-group h3 {
+            color: #d4a574;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 24px;
+            background: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+            color: #555;
+            font-size: 0.95em;
+        }
+
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔬 mmCIF Metadata Importer</h1>
+            <p>Import metadata from mmCIF files using a simple web interface</p>
+            <p style="font-size: 0.95em; margin-top: 12px; opacity: 0.9;">Protein Data Bank in Europe (PDBe) · <a href="https://www.ebi.ac.uk/pdbe" style="color: rgba(255,255,255,0.95); text-decoration: underline;">pdbe.org</a></p>
+        </div>
+        
+        <div class="form-container">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+            
+            <form action="/process" method="post" enctype="multipart/form-data">
+                <!-- Input File Section -->
+                <div class="form-section">
+                    <h2>Input Files</h2>
+                    
+                    <div class="form-group">
+                        <label for="input_file">
+                            Input mmCIF File <span class="required">*</span>
+                        </label>
+                        <input type="file" id="input_file" name="input_file" accept=".cif" required>
+                        <div class="help-text">Select the input mmCIF file (.cif or .cif.V[ordinal])</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="merge_to_file">
+                            Merge To File (Optional)
+                        </label>
+                        <input type="file" id="merge_to_file" name="merge_to_file" accept=".cif">
+                        <div class="help-text">If provided, imported metadata will be merged into this file instead of creating a new file</div>
+                    </div>
+                </div>
+                
+                <!-- Method-Specific Specifications -->
+                <div class="form-section">
+                    <h2>Method-Specific Specifications</h2>
+                    <p class="help-text">Select at least one method. The tool will validate that your input file matches the selected method.</p>
+                    
+                    <div class="method-group">
+                        <h3>X-ray Crystallography</h3>
+                        <div class="checkbox-group">
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="xray" name="xray">
+                                <label for="xray">X-ray (XRAY.csv)</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="xray_serial" name="xray_serial">
+                                <label for="xray_serial">X-ray Serial (XRAY_SERIAL.csv)</label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="method-group">
+                        <h3>Electron Microscopy</h3>
+                        <div class="checkbox-group">
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="em" name="em">
+                                <label for="em">Electron Microscopy (EM.csv)</label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="method-group">
+                        <h3>NMR</h3>
+                        <div class="checkbox-group">
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="nmr" name="nmr">
+                                <label for="nmr">Solution NMR (NMR.csv)</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Additional Specifications -->
+                <div class="form-section">
+                    <h2>Additional Specifications (Optional)</h2>
+                    <p class="help-text">These can be combined with any method-specific specification.</p>
+                    
+                    <div class="optional-group">
+                        <div class="checkbox-group">
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="macromolecules" name="macromolecules">
+                                <label for="macromolecules">Macromolecules (MACROMOLECULES.csv)</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="citation" name="citation">
+                                <label for="citation">Citation (CITATION.csv)</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="authors" name="authors">
+                                <label for="authors">Authors (AUTHORS.csv)</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="funding" name="funding">
+                                <label for="funding">Funding (FUNDING.csv)</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="keywords" name="keywords">
+                                <label for="keywords">Keywords (KEYWORDS.csv)</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Output Options -->
+                <div class="form-section">
+                    <h2>Output Options</h2>
+                    
+                    <div class="form-group">
+                        <label for="output_filename">
+                            Output Filename (Optional)
+                        </label>
+                        <input type="text" id="output_filename" name="output_filename" placeholder="Leave empty for auto-generated name">
+                        <div class="help-text">Only used when not merging. If empty, output will be named [input_name]_metadata.cif</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="log" name="log">
+                            <label for="log">Generate Log File</label>
+                        </div>
+                        <div class="help-text">Create a detailed log file with information about the import process</div>
+                    </div>
+                </div>
+                
+                <button type="submit" class="submit-btn">🚀 Import Metadata</button>
+            </form>
+        </div>
+        <footer class="footer">
+            <p><strong>Deborah Harrus</strong> · Protein Data Bank in Europe (PDBe) · <a href="https://www.ebi.ac.uk/pdbe">pdbe.org</a></p>
+        </footer>
+    </div>
+</body>
+</html>
+

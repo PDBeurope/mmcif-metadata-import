@@ -1,0 +1,4 @@
+category,item,should_import,type
+_struct_keywords,text,Y,item
+_struct_keywords,pdbx_keywords,Y,item
+_struct_keywords,pdbx_details,Y,item

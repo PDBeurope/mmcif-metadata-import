@@ -1,0 +1,6 @@
+# Core dependency (same as requirements.txt)
+gemmi>=0.6.0
+
+# For the Jupyter notebook interactive UI
+ipywidgets>=8.0.0
+jupyter>=1.0.0
