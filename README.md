@@ -50,7 +50,7 @@ python import_metadata.py <input_file> [--xray] [--xray_serial] [--em] [--nmr] [
 
 **Note**: At least one specification file must be provided.
 
-**Merge Mode**: When `--merge_to_file` is provided, the imported metadata will be merged into the first data block of the specified file. The metadata items will be added at the end of the first data block, before any subsequent data blocks. A new file will be created with the name pattern `<originalname>_merged_with_<inputfilename>` (e.g., if merging `6qvt_nometdata.cif` with metadata from `6qvt.cif`, the output will be `6qvt_nometdata_merged_with_6qvt.cif`). The original target file is not modified. **Important**: Categories and items that already exist in the target file will not be merged to avoid overwriting existing data. These will be reported in the log file as "Categories not imported" and "Items not imported". If `--merge_to_file` is not provided, a new metadata file will be created as specified by `-o/--output`.
+**Merge Mode**: When `--merge_to_file` is provided, the imported metadata will be merged into the first data block of the specified file. The metadata items will be added at the end of the first data block, before any subsequent data blocks. A new file will be created with the name pattern `<originalname>_merged_with_<inputfilename>` (e.g., if merging `target.cif` with metadata from `input.cif`, the output will be `target_merged_with_input.cif`). The original target file is not modified. **Important**: Categories and items that already exist in the target file will not be merged to avoid overwriting existing data. These will be reported in the log file as "Categories not imported" and "Items not imported". If `--merge_to_file` is not provided, a new metadata file will be created as specified by `-o/--output`.
 
 **Method Validation**: The script automatically detects the input file's method and validates method-specific flags. If you try to use `--xray` on an EM file, the script will warn you and skip the X-ray specification to prevent importing incompatible metadata.
 
@@ -90,18 +90,18 @@ python import_metadata.py em_file.cif --em --xray --macromolecules
 # Output: "Warning: Skipping X-ray specification - input file method (EM_MAP_ONLY) doesn't match X-ray method"
 
 # Merge metadata into an existing file (single data block)
-python import_metadata.py 6qvt.cif --xray --merge_to_file test_files/xray/6qvt_nometdata.cif
+python import_metadata.py input.cif --xray --merge_to_file target.cif
 
 # Merge metadata into an existing file with multiple data blocks
-python import_metadata.py 6qvs.cif --xray --merge_to_file test_files/xray/6qvt_nometdata_extra_datablock.cif
+python import_metadata.py input.cif --xray --merge_to_file target_multiple_datablocks.cif
 # Metadata will be added to the first data block, before the second data block
 
 # Generate a log file with detailed import information (automatically named input.log)
 python import_metadata.py input.cif --xray --log
 
 # Combine merge with log file (log file automatically named based on merge output)
-python import_metadata.py 6qvt.cif --xray --merge_to_file test_files/xray/6qvt_nometdata.cif --log
-# Log file will be: test_files/xray/6qvt_nometdata_merged_with_6qvt.log
+python import_metadata.py input.cif --xray --merge_to_file target.cif --log
+# Log file will be: target_merged_with_input.log (same directory as target)
 ```
 
 ## Method Detection
@@ -214,7 +214,7 @@ The script creates a new mmCIF file containing only the specified categories and
 
 When using the `--log` flag, a detailed log file is automatically generated with the same name as the output file but with a `.log` extension, placed in the same directory as the output file. For example:
 - If output file is `input_metadata.cif`, the log file will be `input_metadata.log`
-- If merge output is `test_files/xray/6qvt_nometdata_merged_with_6qvt.cif`, the log file will be `test_files/xray/6qvt_nometdata_merged_with_6qvt.log`
+- If merge output is `target_merged_with_input.cif`, the log file will be `target_merged_with_input.log` (same directory as the merge output)
 
 The log file contains:
 
