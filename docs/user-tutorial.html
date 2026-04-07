@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="User guide for the PDBe mmCIF Metadata Importer: web app, Jupyter notebook, and command line.">
+  <title>mmCIF Metadata Importer — User Guide</title>
+  <style>
+    /* Palette aligned with PDBe mmCIF Validator (EBI Framework + Material): blues #193f90 / #2b5797 / #3b6fb6, accent #007b53, canvas #fafafa */
+    :root {
+      --ebi-blue-dark: #193f90;
+      --ebi-blue-mid: #2b5797;
+      --ebi-blue-light: #3b6fb6;
+      --ebi-teal: #007b53;
+      --canvas: #fafafa;
+      --text: #1a1c1a;
+      --muted: #54585a;
+      --border: #d0d0ce;
+      --code-bg: #f6f6f6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: var(--canvas);
+      background-image: linear-gradient(180deg, #e8eef4 0%, var(--canvas) 28%);
+      min-height: 100vh;
+      padding: 1.25rem;
+      color: var(--text);
+      line-height: 1.55;
+    }
+    .wrap {
+      max-width: 52rem;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(25, 63, 144, 0.08);
+      overflow: hidden;
+    }
+    header {
+      background: linear-gradient(135deg, #0a5032 0%, var(--ebi-teal) 55%, #18974c 100%);
+      color: #fff;
+      padding: 2rem 1.75rem;
+      text-align: center;
+    }
+    header h1 {
+      margin: 0 0 0.5rem;
+      font-size: clamp(1.35rem, 4vw, 1.85rem);
+      font-weight: 600;
+    }
+    header p {
+      margin: 0;
+      opacity: 0.92;
+      font-size: 0.95rem;
+    }
+    header a {
+      color: #fff;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    main {
+      padding: 2rem 1.75rem 2.5rem;
+    }
+    main > section {
+      margin-bottom: 2.25rem;
+    }
+    main > section:last-child {
+      margin-bottom: 0;
+    }
+    h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1.25rem;
+      color: #373a36;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--ebi-blue-mid);
+    }
+    h3 {
+      margin: 1.25rem 0 0.5rem;
+      font-size: 1.05rem;
+      color: #333;
+    }
+    p, li {
+      color: var(--muted);
+    }
+    ul, ol {
+      margin: 0.5rem 0 0;
+      padding-left: 1.35rem;
+    }
+    li { margin-bottom: 0.35rem; }
+    .lead {
+      font-size: 1.05rem;
+      color: var(--muted);
+      margin: 0 0 1rem;
+    }
+    .toc {
+      background: var(--canvas);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+    .toc h2 {
+      border: none;
+      padding: 0;
+      margin: 0 0 0.75rem;
+      font-size: 1rem;
+    }
+    .toc ol {
+      margin: 0;
+      padding-left: 1.25rem;
+    }
+    .toc ol ol {
+      margin: 0.35rem 0 0;
+      padding-left: 1.5rem;
+    }
+    .toc a {
+      color: var(--ebi-blue-dark);
+      text-decoration: none;
+    }
+    .toc a:hover { color: var(--ebi-teal); text-decoration: underline; }
+    pre {
+      margin: 0.75rem 0 0;
+      padding: 1rem 1.1rem;
+      background: var(--code-bg);
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      line-height: 1.45;
+      border: 1px solid var(--border);
+    }
+    code {
+      font-family: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+    }
+    .note {
+      margin-top: 1rem;
+      padding: 0.85rem 1rem;
+      background: #f3f7fa;
+      border-left: 4px solid var(--ebi-teal);
+      border-radius: 0 8px 8px 0;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+    .note strong { color: #333; }
+    .step-image {
+      display: block;
+      width: auto;
+      max-width: 100%;
+      height: auto;
+      margin: 0.65rem 0 1rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    }
+    .step-caption {
+      margin-top: 0.15rem;
+      margin-bottom: 0.8rem;
+      font-size: 0.88rem;
+      color: #707372;
+    }
+    .flow-summary {
+      margin-top: 1rem;
+      padding: 0.9rem;
+      background: var(--canvas);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      text-align: center;
+    }
+    .flow-summary h3 {
+      margin: 0 0 0.55rem;
+      font-size: 0.98rem;
+      color: #373a36;
+    }
+    .flow-track {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      align-items: center;
+    }
+    .flow-step {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.35rem 0.7rem;
+      font-size: 0.84rem;
+      color: #373a36;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .flow-step strong {
+      color: inherit;
+      font-weight: 600;
+    }
+    .flow-arrow {
+      position: relative;
+      display: block;
+      width: 2px;
+      height: 18px;
+      margin: 0.05rem auto;
+      background: var(--ebi-teal);
+      border-radius: 2px;
+      font-size: 0;
+      line-height: 0;
+    }
+    .flow-arrow::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: -6px;
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 6px solid var(--ebi-teal);
+    }
+    footer {
+      padding: 1rem 1.75rem 1.75rem;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+    }
+    footer a {
+      color: var(--ebi-blue-dark);
+    }
+    footer a:hover {
+      color: var(--ebi-teal);
+    }
+    @media print {
+      body { background: #fff; padding: 0; }
+      .wrap { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>mmCIF Metadata Importer — User Guide</h1>
+      <p>
+        <a href="https://www.ebi.ac.uk/pdbe">Protein Data Bank in Europe (PDBe)</a>
+        ·
+        <a href="https://github.com/PDBeurope/mmcif-metadata-import">Repository</a>
+      </p>
+    </header>
+
+    <main>
+      <p class="lead">
+        This guide explains how to extract selected metadata from an mmCIF file into a new metadata-only file,
+        or merge that metadata into an existing model file, using the PDBe mmCIF Metadata Importer.
+      </p>
+
+      <nav class="toc" aria-label="On this page">
+        <h2>Contents</h2>
+        <ol>
+          <li><a href="#what">What this tool does</a></li>
+          <li><a href="#before">Before you start</a></li>
+          <li><a href="#deposition">Streamlining depositions with OneDep</a></li>
+          <li>
+            <a href="#interfaces">4. Run the metadata importer</a>
+            <ol>
+              <li><a href="#cli">4-a. Command line</a></li>
+              <li><a href="#web">4-b. Web app</a></li>
+              <li><a href="#notebook">4-c. Jupyter notebook</a></li>
+            </ol>
+          </li>
+        </ol>
+      </nav>
+
+      <section id="what">
+        <h2>1. What this tool does</h2>
+        <p>
+          The importer copies metadata you select from an input mmCIF file. You can produce either a
+          <strong>standalone metadata file</strong> or a <strong>merged file</strong> that combines imported metadata
+          with an existing target mmCIF. Which categories are copied is controlled by specification sets (X-ray, EM, NMR, citation, authors, and others).
+        </p>
+      </section>
+
+      <section id="before">
+        <h2>2. Before you start</h2>
+        <p>Have ready:</p>
+        <ul>
+          <li>An input file: <code>*.cif</code> or <code>*.cif.V[ordinal]</code></li>
+          <li>Optionally, a merge target: another <code>*.cif</code> file</li>
+          <li>At least one specification choice: method-specific (X-ray, X-ray serial, EM, NMR) and/or optional groups (macromolecules, citation, authors, funding, keywords)</li>
+        </ul>
+      </section>
+
+      <section id="deposition">
+        <h2>3. Streamlining depositions with OneDep</h2>
+        <p>
+          A practical workflow is to complete one fully annotated deposition first, then use the resulting annotated file
+          as the metadata template for additional related files.
+        </p>
+        <div class="flow-summary" aria-label="Section 3 visual summary">
+          <h3>Streamlining depositions workflow</h3>
+          <div class="flow-track">
+            <span class="flow-step"><strong>Start deposition</strong> (ORCID login, select country, select method)</span>
+            <span class="flow-arrow">↓</span>
+            <span class="flow-step"><strong>Upload files and enter metadata</strong></span>
+            <span class="flow-arrow">↓</span>
+            <span class="flow-step"><strong>Wait for annotation and download the annotated model</strong></span>
+            <span class="flow-arrow">↓</span>
+            <span class="flow-step"><strong>Use the annotated model as template in the mmCIF metadata importer</strong></span>
+            <span class="flow-arrow">↓</span>
+            <span class="flow-step"><strong>Upload the merged file produced by the mmCIF metadata importer to a new deposition</strong> (prefill)</span>
+          </div>
+        </div>
+        <ol>
+          <li>
+            Log in to OneDep with your ORCID account.
+            <img class="step-image" src="./img/orcid-login.png" alt="OneDep ORCID login screen">
+            <p class="step-caption">Step 1: Authenticate with ORCID to start your deposition session.</p>
+          </li>
+          <li>
+            Select your country in the deposition setup form.
+            <img class="step-image" src="./img/country-selection.png" alt="Country selection in OneDep deposition form">
+            <p class="step-caption">Step 2: Choose the country for the deposition details.</p>
+          </li>
+          <li>
+            Select your experimental method.
+            <img class="step-image" src="./img/experimental-method.png" alt="Experimental method selection in OneDep">
+            <p class="step-caption">Step 3: Pick the method that matches your structure determination workflow.</p>
+          </li>
+          <li>
+            Click <strong>Start Deposition</strong>.
+            <img class="step-image" src="./img/start-deposition.png" alt="Start Deposition button in OneDep">
+            <p class="step-caption">Step 4: Click Start Deposition to create the deposition record.</p>
+          </li>
+          <li>
+            Upload your file in the deposition interface, complete all metadata fields, and submit.
+            <img class="step-image" src="./img/enter-metadata.png" alt="Enter metadata in the OneDep deposition interface">
+            <p class="step-caption">Step 5: Complete metadata and submit your deposition.</p>
+          </li>
+          <li>Wait for your entry to be annotated by one of our biocurators. You will receive an email when the annotation is complete.</li>
+          <li>
+            Download the metadata-rich annotated file <strong>Model (annotated)</strong> in PDBx/mmCIF format from the <strong>Download</strong> page in the deposition interface.
+            <img class="step-image" src="./img/download.png" alt="Download page in the OneDep deposition interface">
+            <p class="step-caption">Step 7: Download your annotated file when it is ready.</p>
+          </li>
+          <li>Use that annotated file as the metadata source/template in this importer ("input.cif" in the importer), and copy metadata into your other files ("other_file.cif" in the importer).</li>
+          <li>Upload the merged file into a new deposition. This will pre-fill almost all sections in the deposition interface, so you only need to review and complete any remaining fields.</li>
+        </ol>
+        <div class="note">
+          <strong>This reduces repeated manual metadata entry and keeps metadata consistent across related submissions.</strong>
+        </div>
+      </section>
+
+      <section id="interfaces">
+        <h2>4. Run the metadata importer</h2>
+        <ul>
+          <li><strong>Command line</strong> — scripting and batch runs.</li>
+          <li><strong>Web app</strong> — form with uploads; good for most users.</li>
+          <li><strong>Jupyter notebook</strong> — interactive widgets; no separate server.</li>
+        </ul>
+      </section>
+
+      <section id="cli">
+        <h2>4-a. Command line</h2>
+        <p>Install dependencies from the repository root:</p>
+        <pre><code>pip install -r requirements.txt</code></pre>
+        <p>Basic pattern:</p>
+        <pre><code>python import_metadata.py &lt;input_file&gt; [flags]</code></pre>
+
+        <h3>Examples</h3>
+        <pre><code># X-ray metadata
+python import_metadata.py input.cif --xray
+
+# EM plus optional metadata
+python import_metadata.py input.cif --em --macromolecules --citation
+
+# Custom output name
+python import_metadata.py input.cif --nmr -o my_output.cif
+
+# Merge into an existing file
+python import_metadata.py input.cif --xray --merge_to_file target.cif
+
+# Detailed log
+python import_metadata.py input.cif --xray --log</code></pre>
+      </section>
+
+      <section id="web">
+        <h2>4-b. Web app</h2>
+        <h3>Start the server</h3>
+        <p>From the repository root (after installing dependencies):</p>
+        <pre><code>cd web_app
+pip install -r requirements.txt
+python app.py</code></pre>
+        <p>Open <code>http://localhost:5000</code> in your browser.</p>
+
+        <h3>Use the form</h3>
+        <ol>
+          <li>Upload your <strong>input</strong> mmCIF file (required).</li>
+          <li>Optionally upload a <strong>merge</strong> file if you want metadata merged into an existing model.</li>
+          <li>Select specifications: pick method-specific options that match your experiment type, and any optional groups.</li>
+          <li>Optionally set a custom output filename and enable <strong>Generate log file</strong>.</li>
+          <li>Click <strong>Import metadata</strong>.</li>
+        </ol>
+        <p>Results download as a ZIP containing the output <code>.cif</code> and, if requested, a <code>.log</code> file.</p>
+        <div class="note">
+          <strong>File size:</strong> the web app limits uploads to 100&nbsp;MB by default (configurable in <code>web_app/app.py</code>).
+        </div>
+      </section>
+
+      <section id="notebook">
+        <h2>4-c. Jupyter notebook</h2>
+        <pre><code>pip install -r requirements-notebook.txt
+jupyter notebook</code></pre>
+        <p>Open <code>metadata_import.ipynb</code>, run all cells, then use the widgets to upload files, choose specifications, and run the import. Outputs are written under <code>notebook_output/</code>.</p>
+        <div class="note">
+          <strong>Binder:</strong> you can run the notebook in the browser via the Binder badge in the main README; download outputs before closing the session.
+        </div>
+      </section>
+
+    </main>
+
+    <footer>
+      mmCIF Metadata Importer · PDBe · Apache License 2.0 ·
+      <a href="https://github.com/PDBeurope/mmcif-metadata-import">github.com/PDBeurope/mmcif-metadata-import</a>
+    </footer>
+  </div>
+</body>
+</html>
