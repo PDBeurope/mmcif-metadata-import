@@ -4,6 +4,12 @@ This tool imports metadata from mmCIF files into new metadata-only files or into
 
 **Protein Data Bank in Europe (PDBe)** · [pdbe.org](https://www.ebi.ac.uk/pdbe)
 
+## User guide
+
+[**User tutorial**](https://pdbeurope.github.io/mmcif-metadata-import/user-tutorial.html)
+
+The same content lives in the repository as [`docs/user-tutorial.html`](docs/user-tutorial.html).
+
 ## Installation
 
 1. Install the required dependency:
