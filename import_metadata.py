@@ -15,6 +15,25 @@ import csv
 from pathlib import Path
 import gemmi
 
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def resolve_spec_path(spec_path):
+    """
+    Resolve a specification file path from either:
+    - current working directory (repo usage), or
+    - installed package location (PyPI usage).
+    """
+    candidate = Path(spec_path)
+    if candidate.exists():
+        return candidate
+
+    package_candidate = PROJECT_ROOT / candidate
+    if package_candidate.exists():
+        return package_candidate
+
+    return candidate
+
 
 def parse_specification_file(spec_file_path):
     """
@@ -28,6 +47,7 @@ def parse_specification_file(spec_file_path):
     excluded_categories = set()
     excluded_items = set()
     
+    spec_file_path = resolve_spec_path(spec_file_path)
     with open(spec_file_path, 'r', newline='') as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -805,11 +825,11 @@ def main():
                     skipped_specs.append((filename, reason))
                     continue
             
-            spec_path = Path(filename)
+            spec_path = resolve_spec_path(filename)
             if not spec_path.exists():
                 print(f"Error: {description} specification file {filename} does not exist")
                 sys.exit(1)
-            spec_files.append(filename)
+            spec_files.append(str(spec_path))
             print(f"Using {description} specification file: {filename}")
     
     # Check if at least one specification file is provided
@@ -829,11 +849,11 @@ def main():
     
     for flag, filename, description in additional_specs:
         if flag:
-            spec_path = Path(filename)
+            spec_path = resolve_spec_path(filename)
             if not spec_path.exists():
                 print(f"Error: {description.title()} specification file {filename} does not exist")
                 sys.exit(1)
-            spec_files.append(filename)
+            spec_files.append(str(spec_path))
             print(f"Also using {description} specification file: {filename}")
     
     # Run metadata import

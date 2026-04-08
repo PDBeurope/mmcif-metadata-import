@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mmcif-metadata-import"
+version = "0.1.0"
+description = "Import metadata from mmCIF files using CSV specifications."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+authors = [
+  { name = "Deborah Harrus" }
+]
+dependencies = [
+  "gemmi>=0.6.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/PDBeurope/mmcif-metadata-import"
+Repository = "https://github.com/PDBeurope/mmcif-metadata-import"
+
+[project.scripts]
+mmcif-metadata-import = "import_metadata:main"
+
+[tool.setuptools]
+py-modules = ["import_metadata"]
+
+[tool.setuptools.data-files]
+"specs" = ["specs/*.csv"]
