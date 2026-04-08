@@ -356,26 +356,29 @@
 
       <section id="cli">
         <h2>4-a. Command line</h2>
-        <p>Install dependencies from the repository root:</p>
+        <p><strong>Install from PyPI</strong> (recommended):</p>
+        <pre><code>pip install mmcif-metadata-import</code></pre>
+        <p><strong>Or from source</strong> (clone the repository, then from the repo root):</p>
         <pre><code>pip install -r requirements.txt</code></pre>
         <p>Basic pattern:</p>
-        <pre><code>python import_metadata.py &lt;input_file&gt; [flags]</code></pre>
+        <pre><code>mmcif-metadata-import &lt;input_file&gt; [flags]</code></pre>
+        <p class="note" style="margin-top: 0.75rem;"><strong>From source only:</strong> use <code>python import_metadata.py</code> with the same arguments instead of <code>mmcif-metadata-import</code>.</p>
 
         <h3>Examples</h3>
         <pre><code># X-ray metadata
-python import_metadata.py input.cif --xray
+mmcif-metadata-import input.cif --xray
 
 # EM plus optional metadata
-python import_metadata.py input.cif --em --macromolecules --citation
+mmcif-metadata-import input.cif --em --macromolecules --citation
 
 # Custom output name
-python import_metadata.py input.cif --nmr -o my_output.cif
+mmcif-metadata-import input.cif --nmr -o my_output.cif
 
 # Merge into an existing file
-python import_metadata.py input.cif --xray --merge_to_file target.cif
+mmcif-metadata-import input.cif --xray --merge_to_file target.cif
 
 # Detailed log
-python import_metadata.py input.cif --xray --log</code></pre>
+mmcif-metadata-import input.cif --xray --log</code></pre>
       </section>
 
       <section id="web">

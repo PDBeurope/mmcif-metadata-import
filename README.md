@@ -8,11 +8,18 @@ This tool imports metadata from mmCIF files into new metadata-only files or into
 
 [**User tutorial**](https://pdbeurope.github.io/mmcif-metadata-import/user-tutorial.html)
 
-The same content lives in the repository as [`docs/user-tutorial.html`](docs/user-tutorial.html).
+The same content lives in the repository as [`docs/user-tutorial.html`](docs/user-tutorial.html). The site root ([`docs/index.html`](docs/index.html)) redirects there so [https://pdbeurope.github.io/mmcif-metadata-import/](https://pdbeurope.github.io/mmcif-metadata-import/) serves the tutorial.
 
 ## Installation
 
-1. Install the required dependency:
+**From PyPI** (recommended): installs the `mmcif-metadata-import` command-line tool.
+
+```bash
+pip install mmcif-metadata-import
+```
+
+**From source** (clone the repository): install dependencies, then run with `python import_metadata.py` using the same arguments as below.
+
 ```bash
 pip install -r requirements.txt
 ```
@@ -35,7 +42,7 @@ pip install -r requirements-notebook.txt
 ## Usage
 
 ```bash
-python import_metadata.py <input_file> [--xray] [--xray_serial] [--em] [--nmr] [--macromolecules] [--citation] [--authors] [--funding] [--keywords] [-o output_file] [--merge_to_file target_file] [--log]
+mmcif-metadata-import <input_file> [--xray] [--xray_serial] [--em] [--nmr] [--macromolecules] [--citation] [--authors] [--funding] [--keywords] [-o output_file] [--merge_to_file target_file] [--log]
 ```
 
 ### Arguments
@@ -64,49 +71,49 @@ python import_metadata.py <input_file> [--xray] [--xray_serial] [--em] [--nmr] [
 
 ```bash
 # Basic usage with method-specific files
-python import_metadata.py input.cif --xray
-python import_metadata.py input.cif --xray_serial
-python import_metadata.py input.cif --em
-python import_metadata.py input.cif --nmr
+mmcif-metadata-import input.cif --xray
+mmcif-metadata-import input.cif --xray_serial
+mmcif-metadata-import input.cif --em
+mmcif-metadata-import input.cif --nmr
 
 # With custom output name
-python import_metadata.py input.cif --xray -o custom_output.cif
+mmcif-metadata-import input.cif --xray -o custom_output.cif
 
 # Using only optional specification files
-python import_metadata.py input.cif --macromolecules
-python import_metadata.py input.cif --citation --authors
-python import_metadata.py input.cif --funding --keywords
+mmcif-metadata-import input.cif --macromolecules
+mmcif-metadata-import input.cif --citation --authors
+mmcif-metadata-import input.cif --funding --keywords
 
 # Combine method-specific with optional files
-python import_metadata.py input.cif --em --macromolecules
-python import_metadata.py input.cif --xray --citation --authors
-python import_metadata.py input.cif --nmr --funding --keywords
+mmcif-metadata-import input.cif --em --macromolecules
+mmcif-metadata-import input.cif --xray --citation --authors
+mmcif-metadata-import input.cif --nmr --funding --keywords
 
 # Multiple method-specific files
-python import_metadata.py input.cif --xray --xray_serial --em --nmr
+mmcif-metadata-import input.cif --xray --xray_serial --em --nmr
 
 # All optional categories
-python import_metadata.py input.cif --macromolecules --citation --authors --funding --keywords
+mmcif-metadata-import input.cif --macromolecules --citation --authors --funding --keywords
 
 # Everything together
-python import_metadata.py input.cif --xray --em --nmr --macromolecules --citation --authors --funding --keywords
+mmcif-metadata-import input.cif --xray --em --nmr --macromolecules --citation --authors --funding --keywords
 
 # Method validation example (EM file with X-ray flag - X-ray will be skipped)
-python import_metadata.py em_file.cif --em --xray --macromolecules
+mmcif-metadata-import em_file.cif --em --xray --macromolecules
 # Output: "Warning: Skipping X-ray specification - input file method (EM_MAP_ONLY) doesn't match X-ray method"
 
 # Merge metadata into an existing file (single data block)
-python import_metadata.py input.cif --xray --merge_to_file target.cif
+mmcif-metadata-import input.cif --xray --merge_to_file target.cif
 
 # Merge metadata into an existing file with multiple data blocks
-python import_metadata.py input.cif --xray --merge_to_file target_multiple_datablocks.cif
+mmcif-metadata-import input.cif --xray --merge_to_file target_multiple_datablocks.cif
 # Metadata will be added to the first data block, before the second data block
 
 # Generate a log file with detailed import information (automatically named input.log)
-python import_metadata.py input.cif --xray --log
+mmcif-metadata-import input.cif --xray --log
 
 # Combine merge with log file (log file automatically named based on merge output)
-python import_metadata.py input.cif --xray --merge_to_file target.cif --log
+mmcif-metadata-import input.cif --xray --merge_to_file target.cif --log
 # Log file will be: target_merged_with_input.log (same directory as target)
 ```
 
