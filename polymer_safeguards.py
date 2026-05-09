@@ -1,7 +1,7 @@
 """
 Macromolecule merge safeguards (reference vs target mmCIF).
 
-Implements dev/macromolecules-import-safeguards-plan.md (R-POLY-*, R-ALIGN-*).
+See docs/macromolecule-safeguards.md for user-facing documentation of checks and rule codes.
 """
 
 from __future__ import annotations

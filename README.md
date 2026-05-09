@@ -138,7 +138,7 @@ mmcif-metadata-import reference.cif --macromolecules --merge_to_file target.cif 
 
 When **`--macromolecules`** and **`--merge_to_file`** are both set, the **reference** file is the positional `input_file` and the **target** is `--merge_to_file`. Before copying categories from `specs/MACROMOLECULES.csv`, the tool checks that polymer chains in the two files **match** (same `label_asym_id` set, compatible residue counts and sequences). If the check fails, **only** those macromolecule categories are left out of the merge; **other** requested categories (e.g. `--xray` + `--macromolecules`) are still merged, and the CLI exits with **code 2**.
 
-Design details and requirement IDs live in [`dev/macromolecules-import-safeguards-plan.md`](dev/macromolecules-import-safeguards-plan.md).
+- **Rule codes in logs** (`ALIGN-1-ASYMM-SET`, etc.) and what each check does: [`docs/macromolecule-safeguards.md`](docs/macromolecule-safeguards.md).
 
 ## Method Detection
 

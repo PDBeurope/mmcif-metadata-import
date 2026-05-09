@@ -7,13 +7,13 @@ All notable changes to this project will be documented in this file.
 ## [0.2.0] - 2026-05-09
 
 ### Added
+- [`docs/macromolecule-safeguards.md`](docs/macromolecule-safeguards.md): user reference for macromolecule merge checks and log rule codes (`ALIGN-*`).
 - Macromolecule merge safeguards (`polymer_safeguards.py`): when merging with `MACROMOLECULES.csv`, validate reference vs target polymer chains (`_entity` / `_struct_asym` when both qualify, otherwise forced `_atom_site` fallback on both sides) before copying macromolecule categories.
 - CLI flag `--no-macromolecule-safeguards` to skip validation.
 - Exit code **2** when the merge completes but macromolecule categories were omitted due to failed safeguards (exit **1** remains for hard failures).
 - Import log section **MACROMOLECULE SAFEGUARDS** with structured failure details when checks run.
 - Web app warning when macromolecules are skipped; `alert-warning` styling in the template.
 - Unit tests in `tests/test_polymer_safeguards.py`.
-- Design notes in `dev/macromolecules-import-safeguards-plan.md`.
 
 ### Changed
 - **`import_metadata()`** now returns **`ImportMetadataOutcome`** (`ok`, `exit_status`, optional `safeguard_result`) instead of a bare boolean. Callers should use `outcome.ok` (and optionally `outcome.exit_status`).
