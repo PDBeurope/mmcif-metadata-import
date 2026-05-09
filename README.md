@@ -2,6 +2,8 @@
 
 This tool imports metadata from mmCIF files into new metadata-only files or into existing models. It uses the gemmi library, with automatic method detection and method-specific CSV specification files.
 
+**Current version:** 0.2.0 — see [CHANGELOG](CHANGELOG.md) for release notes.
+
 **Protein Data Bank in Europe (PDBe)** · [pdbe.org](https://www.ebi.ac.uk/pdbe)
 
 ## User guide
@@ -42,7 +44,7 @@ pip install -r requirements-notebook.txt
 ## Usage
 
 ```bash
-mmcif-metadata-import <input_file> [--xray] [--xray_serial] [--em] [--nmr] [--macromolecules] [--citation] [--authors] [--funding] [--keywords] [-o output_file] [--merge_to_file target_file] [--log]
+mmcif-metadata-import <input_file> [--xray] [--xray_serial] [--em] [--nmr] [--macromolecules] [--citation] [--authors] [--funding] [--keywords] [-o output_file] [--merge_to_file target_file] [--log] [--no-macromolecule-safeguards]
 ```
 
 ### Arguments
@@ -52,7 +54,8 @@ mmcif-metadata-import <input_file> [--xray] [--xray_serial] [--em] [--nmr] [--ma
 - `--xray_serial`: Optional flag to include X-ray serial specific categories from specs/XRAY_SERIAL.csv
 - `--em`: Optional flag to include electron microscopy specific categories from specs/EM.csv
 - `--nmr`: Optional flag to include NMR specific categories from specs/NMR.csv
-- `--macromolecules`: Optional flag to include macromolecules categories from specs/MACROMOLECULES.csv
+- `--macromolecules`: Optional flag to include macromolecules categories from specs/MACROMOLECULES.csv. When used **together with** `--merge_to_file`, the tool runs **reference-vs-target safeguards** so macromolecule metadata is only merged if polymer chains align (see [Macromolecule merge safeguards](#macromolecule-merge-safeguards)).
+- `--no-macromolecule-safeguards`: When merging with `--macromolecules`, skip reference-vs-target polymer checks (use only if you accept inconsistent macromolecule metadata).
 - `--citation`: Optional flag to include citation categories from specs/CITATION.csv
 - `--authors`: Optional flag to include author categories from specs/AUTHORS.csv
 - `--funding`: Optional flag to include funding categories from specs/FUNDING.csv
@@ -62,6 +65,14 @@ mmcif-metadata-import <input_file> [--xray] [--xray_serial] [--em] [--nmr] [--ma
 - `--log`: Optional flag to generate a log file with detailed information about the import process. The log file is automatically named based on the output file (same name with `.log` extension) and placed in the same directory as the output file.
 
 **Note**: At least one specification file must be provided.
+
+**Exit codes** (CLI):
+
+- **0** — Success; all requested categories that passed other rules were merged (including macromolecules when applicable).
+- **1** — Failure (e.g. unreadable file, no items to import, merge write error).
+- **2** — Merge **succeeded** for non-macromolecule categories, but **macromolecule categories from `MACROMOLECULES.csv` were omitted** because safeguards failed. Use `--log` to see details.
+
+**Python API**: `import_metadata()` returns an **`ImportMetadataOutcome`** named tuple: `ok`, `exit_status` (same semantics as above), and optional `safeguard_result`. Do not rely on a plain boolean return value.
 
 **Merge Mode**: When `--merge_to_file` is provided, the imported metadata will be merged into the first data block of the specified file. The metadata items will be added at the end of the first data block, before any subsequent data blocks. A new file will be created with the name pattern `<originalname>_merged_with_<inputfilename>` (e.g., if merging `target.cif` with metadata from `input.cif`, the output will be `target_merged_with_input.cif`). The original target file is not modified. **Important**: Categories and items that already exist in the target file will not be merged to avoid overwriting existing data. These will be reported in the log file as "Categories not imported" and "Items not imported". If `--merge_to_file` is not provided, a new metadata file will be created as specified by `-o/--output`.
 
@@ -115,7 +126,19 @@ mmcif-metadata-import input.cif --xray --log
 # Combine merge with log file (log file automatically named based on merge output)
 mmcif-metadata-import input.cif --xray --merge_to_file target.cif --log
 # Log file will be: target_merged_with_input.log (same directory as target)
+
+# Macromolecules + merge: safeguards may skip only macromolecule categories (exit code 2)
+mmcif-metadata-import reference.cif --macromolecules --merge_to_file target.cif --log
+
+# Disable macromolecule safeguards when merging (not recommended for production)
+mmcif-metadata-import reference.cif --macromolecules --merge_to_file target.cif --no-macromolecule-safeguards
 ```
+
+## Macromolecule merge safeguards
+
+When **`--macromolecules`** and **`--merge_to_file`** are both set, the **reference** file is the positional `input_file` and the **target** is `--merge_to_file`. Before copying categories from `specs/MACROMOLECULES.csv`, the tool checks that polymer chains in the two files **match** (same `label_asym_id` set, compatible residue counts and sequences). If the check fails, **only** those macromolecule categories are left out of the merge; **other** requested categories (e.g. `--xray` + `--macromolecules`) are still merged, and the CLI exits with **code 2**.
+
+- **Rule codes in logs** (`ALIGN-1-ASYMM-SET`, etc.) and what each check does: [`docs/macromolecule-safeguards.md`](docs/macromolecule-safeguards.md).
 
 ## Method Detection
 
@@ -150,6 +173,8 @@ Contains macromolecule-related categories:
 - `_entity`, `_entity_name_com`, `_entity_poly`, `_entity_poly_seq`
 - `_entity_src_nat`, `_entity_src_gen`, `_pdbx_entity_src_syn`
 - `_struct_ref`, `_struct_ref_seq`, `_struct_ref_seq_dif`
+
+With **`--merge_to_file`**, see [Macromolecule merge safeguards](#macromolecule-merge-safeguards). Use **`--log`** to record a **MACROMOLECULE SAFEGUARDS** section when checks run.
 
 #### `--citation` (specs/CITATION.csv)
 Contains citation-related categories:
@@ -239,11 +264,13 @@ The log file contains:
 - **Categories Not Imported** (merge mode only): Lists categories that were not imported because they already exist in the target file
 - **Items Not Imported** (merge mode only): Lists items that were not imported because they already exist in the target file
 - **Summary**: Provides counts of requested vs imported categories/items, skipped specifications, categories not found, items not found, and (for merge mode) categories/items not imported
+- **MACROMOLECULE SAFEGUARDS** (when macromolecule checks ran): Pass/fail summary and structured failure details if macromolecule categories were skipped
 
 This log file is useful for debugging and understanding what metadata was imported and what was skipped.
 
 ## Features
 
+- Macromolecule merge safeguards when merging with `--macromolecules`; CLI exit code **2** when only macromolecule categories are skipped; `import_metadata()` returns **`ImportMetadataOutcome`**
 - Supports both `.cif` and `.cif.V[ordinal]` input file extensions
 - Processes only the first data block in multi-block mmCIF files
 - Handles both single items and loop structures in mmCIF files

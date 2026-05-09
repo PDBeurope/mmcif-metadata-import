@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mmcif-metadata-import"
-version = "0.1.0"
+version = "0.2.0"
 description = "Import metadata from mmCIF files using CSV specifications."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -24,7 +24,7 @@ Repository = "https://github.com/PDBeurope/mmcif-metadata-import"
 mmcif-metadata-import = "import_metadata:main"
 
 [tool.setuptools]
-py-modules = ["import_metadata"]
+py-modules = ["import_metadata", "polymer_safeguards"]
 
 [tool.setuptools.data-files]
 "specs" = ["specs/*.csv"]

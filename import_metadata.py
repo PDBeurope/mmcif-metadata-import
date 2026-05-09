@@ -13,9 +13,28 @@ import re
 import argparse
 import csv
 from pathlib import Path
+from typing import NamedTuple, Optional
+
 import gemmi
 
+from polymer_safeguards import (
+    MACROMOLECULE_CATEGORIES,
+    validate_macromolecule_merge,
+    strip_macromolecule_categories,
+    macromolecule_spec_in_use,
+    block_has_items,
+    SafeguardResult,
+)
+
 PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+class ImportMetadataOutcome(NamedTuple):
+    """Result of import_metadata(): ok=False means hard failure; exit_status 2 = partial (macromolecules skipped)."""
+
+    ok: bool
+    exit_status: int  # 0 success, 1 failure, 2 macromolecule categories skipped by safeguards
+    safeguard_result: Optional[SafeguardResult]
 
 
 def resolve_spec_path(spec_path):
@@ -363,7 +382,8 @@ def merge_metadata_to_file(metadata_block, merge_to_file, output_file):
 
 def write_log_file(log_file, input_file, spec_files, requested_categories, requested_items, 
                    imported_categories, imported_items, skipped_specs, not_found_items, not_found_categories,
-                   not_imported_categories=None, not_imported_items=None):
+                   not_imported_categories=None, not_imported_items=None,
+                   macromolecule_safeguard_report: Optional[str] = None):
     """
     Write a log file with detailed information about the import process.
     
@@ -489,6 +509,13 @@ def write_log_file(log_file, input_file, spec_files, requested_categories, reque
             if not_imported_items:
                 f.write(f"Items not imported (already present): {len(not_imported_items)}\n")
             f.write(f"Specifications skipped: {len(skipped_specs)}\n")
+
+            if macromolecule_safeguard_report:
+                f.write("\n" + "-" * 80 + "\n")
+                f.write("MACROMOLECULE SAFEGUARDS\n")
+                f.write("-" * 80 + "\n\n")
+                f.write(macromolecule_safeguard_report)
+                f.write("\n")
         
         print(f"Log file written to: {log_file}")
         return True
@@ -498,7 +525,7 @@ def write_log_file(log_file, input_file, spec_files, requested_categories, reque
 
 
 def import_metadata(input_file, spec_files, output_file, merge_to_file=None, merge_output_file=None, 
-                   log_file=None, skipped_specs=None):
+                   log_file=None, skipped_specs=None, disable_macromolecule_safeguards: bool = False):
     """
     Import metadata from input mmCIF file based on specification.
     
@@ -510,6 +537,10 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
         merge_output_file (str, optional): Path to output file for merged result
         log_file (str, optional): Path to log file to write
         skipped_specs (list, optional): List of tuples (spec_file, reason) for skipped specifications
+        disable_macromolecule_safeguards (bool): If True, do not run reference-vs-target macromolecule checks.
+    
+    Returns:
+        ImportMetadataOutcome: ok, exit_status (0 / 1 / 2), optional safeguard_result
     """
     # Handle both single file and multiple files
     if isinstance(spec_files, str):
@@ -526,7 +557,7 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
         doc = gemmi.cif.read(input_file)
     except Exception as e:
         print(f"Error reading input file {input_file}: {e}")
-        return False
+        return ImportMetadataOutcome(False, 1, None)
     
     # Create new document for output
     output_doc = gemmi.cif.Document()
@@ -534,7 +565,7 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
     # Process only the first data block
     if len(doc) == 0:
         print("No data blocks found in input file")
-        return False
+        return ImportMetadataOutcome(False, 1, None)
     
     block = doc[0]  # Get the first data block
     block_name = block.name
@@ -623,8 +654,64 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
             not_found_categories = requested_categories - all_categories_in_file
             write_log_file(log_file, input_file, spec_files, requested_categories, requested_items,
                           imported_categories, imported_items, skipped_specs or [], not_found_items, not_found_categories,
-                          None, None)
-        return False
+                          None, None, None)
+        return ImportMetadataOutcome(False, 1, None)
+
+    safeguard_result: Optional[SafeguardResult] = None
+    macromolecule_skipped = False
+
+    if (
+        merge_to_file
+        and macromolecule_spec_in_use(spec_files)
+        and not disable_macromolecule_safeguards
+    ):
+        try:
+            tgt_doc = gemmi.cif.read(merge_to_file)
+            if len(tgt_doc) == 0:
+                print("Error: merge target has no data blocks")
+                return ImportMetadataOutcome(False, 1, None)
+            safeguard_result = validate_macromolecule_merge(block, tgt_doc[0])
+            if not safeguard_result.ok:
+                new_block = strip_macromolecule_categories(new_block)
+                macromolecule_skipped = True
+                imported_categories -= MACROMOLECULE_CATEGORIES
+                imported_items = {
+                    i for i in imported_items if get_category_from_item(i) not in MACROMOLECULE_CATEGORIES
+                }
+                print(
+                    "Macromolecule categories were not merged (safeguards). Details:\n",
+                    safeguard_result.to_json_fragment(),
+                )
+        except Exception as e:
+            print(f"Error during macromolecule safeguard validation: {e}")
+            return ImportMetadataOutcome(False, 1, None)
+
+    if not block_has_items(new_block):
+        if not merge_to_file:
+            print("No items to include in output after safeguards")
+            if log_file:
+                requested_categories = included_categories.copy()
+                requested_items = included_items.copy()
+                not_found_items = requested_items - all_items_in_file
+                not_found_categories = requested_categories - all_categories_in_file
+                rep = safeguard_result.to_json_fragment() if safeguard_result else None
+                write_log_file(
+                    log_file,
+                    input_file,
+                    spec_files,
+                    requested_categories,
+                    requested_items,
+                    imported_categories,
+                    imported_items,
+                    skipped_specs or [],
+                    not_found_items,
+                    not_found_categories,
+                    None,
+                    None,
+                    rep,
+                )
+            return ImportMetadataOutcome(False, 1, safeguard_result)
+        print("Note: merge proceeds with no new metadata rows (empty import block).")
     
     # If merge_to_file is provided, merge into that file
     not_imported_categories = set()
@@ -663,6 +750,16 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
             print(f"Error writing output file {output_file}: {e}")
             result = False
     
+    safeguard_log: Optional[str] = None
+    if safeguard_result is not None:
+        if macromolecule_skipped:
+            safeguard_log = (
+                "Macromolecule categories were omitted because reference/target "
+                "polymer alignment checks failed.\n" + safeguard_result.to_json_fragment()
+            )
+        else:
+            safeguard_log = "Macromolecule safeguards passed.\n" + safeguard_result.to_json_fragment()
+
     # Write log file if requested
     if log_file and result:
         requested_categories = included_categories.copy()
@@ -680,11 +777,27 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
             actually_imported_categories = imported_categories
             actually_imported_items = imported_items
         
-        write_log_file(log_file, input_file, spec_files, requested_categories, requested_items,
-                      actually_imported_categories, actually_imported_items, skipped_specs or [], not_found_items, not_found_categories,
-                      not_imported_categories if merge_to_file else None, not_imported_items if merge_to_file else None)
-    
-    return result
+        write_log_file(
+            log_file,
+            input_file,
+            spec_files,
+            requested_categories,
+            requested_items,
+            actually_imported_categories,
+            actually_imported_items,
+            skipped_specs or [],
+            not_found_items,
+            not_found_categories,
+            not_imported_categories if merge_to_file else None,
+            not_imported_items if merge_to_file else None,
+            safeguard_log,
+        )
+
+    if not result:
+        return ImportMetadataOutcome(False, 1, safeguard_result)
+    if macromolecule_skipped:
+        return ImportMetadataOutcome(True, 2, safeguard_result)
+    return ImportMetadataOutcome(True, 0, safeguard_result)
 
 
 def main():
@@ -711,6 +824,11 @@ def main():
     parser.add_argument("-o", "--output", help="Output file name (default: [input_name]_metadata.cif)")
     parser.add_argument("--merge_to_file", help="File to merge imported metadata into (instead of creating a new file)")
     parser.add_argument("--log", action="store_true", help="Generate a log file with detailed import information (automatically named based on output file)")
+    parser.add_argument(
+        "--no-macromolecule-safeguards",
+        action="store_true",
+        help="Disable reference-vs-target macromolecule checks when merging with MACROMOLECULES.csv",
+    )
     
     args = parser.parse_args()
     
@@ -857,10 +975,21 @@ def main():
             print(f"Also using {description} specification file: {filename}")
     
     # Run metadata import
-    success = import_metadata(args.input_file, spec_files, output_file, args.merge_to_file, merge_output_file,
-                             log_file, skipped_specs)
-    
-    if not success:
+    outcome = import_metadata(
+        args.input_file,
+        spec_files,
+        output_file,
+        args.merge_to_file,
+        merge_output_file,
+        log_file,
+        skipped_specs,
+        disable_macromolecule_safeguards=args.no_macromolecule_safeguards,
+    )
+
+    if outcome.exit_status == 2:
+        print("Exit status 2: merge completed but macromolecule categories were skipped (safeguards).")
+        sys.exit(2)
+    if not outcome.ok:
         sys.exit(1)
 
 
