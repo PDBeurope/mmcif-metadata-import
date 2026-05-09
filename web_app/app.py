@@ -230,20 +230,27 @@ def process():
             log_path = os.path.join(temp_dir, f"{log_base}.log")
         
         # Call the import_metadata function
-        success = import_metadata(
+        outcome = import_metadata(
             input_path,
             spec_files,
             output_path,
             merge_to_path,
             merge_output_path,
             log_path,
-            skipped_specs if skipped_specs else None
+            skipped_specs if skipped_specs else None,
         )
-        
-        if not success:
+
+        if not outcome.ok:
             flash('Error: Metadata import failed. Check the log file for details.', 'error')
             cleanup_temp_files(temp_dir)
             return redirect(url_for('index'))
+
+        if outcome.exit_status == 2:
+            flash(
+                'Merge completed, but macromolecule metadata was not copied because '
+                'reference and target polymers did not pass alignment checks. See the log file.',
+                'warning',
+            )
         
         # Prepare files for download
         files_to_download = []
