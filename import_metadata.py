@@ -37,6 +37,16 @@ class ImportMetadataOutcome(NamedTuple):
     safeguard_result: Optional[SafeguardResult]
 
 
+class MergeMetadataResult(NamedTuple):
+    """Result of merge_metadata_to_file()."""
+
+    success: bool
+    skipped_categories: set
+    skipped_items: set
+    overwritten_categories: set
+    overwritten_items: set
+
+
 def resolve_spec_path(spec_path):
     """
     Resolve a specification file path from either:
@@ -229,28 +239,92 @@ def should_include_item(item_name, included_items, excluded_items):
     return False
 
 
-def merge_metadata_to_file(metadata_block, merge_to_file, output_file):
+def collect_tags_from_metadata_block(metadata_block):
+    """All mmCIF item tags (pair names and loop column names) present in a block."""
+    tags = set()
+    for item in metadata_block:
+        if item.pair is not None:
+            tags.add(item.pair[0])
+        elif item.loop is not None:
+            for tag in item.loop.tags:
+                tags.add(tag)
+    return tags
+
+
+def remove_conflicting_items_from_target(target_block, import_tags):
+    """
+    Copy target_block, omitting any pair or loop that would conflict with imported tags.
+    A loop is omitted if any of its columns appear in import_tags.
+    """
+    out = gemmi.cif.Block(target_block.name)
+    for item in target_block:
+        if item.pair is not None:
+            if item.pair[0] in import_tags:
+                continue
+            out.set_pair(item.pair[0], item.pair[1])
+        elif item.loop is not None:
+            if any(tag in import_tags for tag in item.loop.tags):
+                continue
+            out.add_item(item)
+    return out
+
+
+def overwritten_tags_from_target(target_block, import_tags):
+    """Tags (and derived categories) in the target that are replaced when import_tags are merged."""
+    overwritten_items = set()
+    for item in target_block:
+        if item.pair is not None:
+            if item.pair[0] in import_tags:
+                overwritten_items.add(item.pair[0])
+        elif item.loop is not None:
+            if any(tag in import_tags for tag in item.loop.tags):
+                for tag in item.loop.tags:
+                    overwritten_items.add(tag)
+    overwritten_categories = {get_category_from_item(t) for t in overwritten_items}
+    return overwritten_categories, overwritten_items
+
+
+def merge_metadata_to_file(metadata_block, merge_to_file, output_file, overwrite_existing=False):
     """
     Merge imported metadata into the first data block of a target file.
-    Works with text files directly.
-    Skips categories/items that already exist in the target file.
+    By default, skips categories/items that already exist in the target file (text splice).
+    If overwrite_existing is True, removes conflicting pairs/loops from the target first,
+    then appends all imported metadata and writes the full document via gemmi.
 
     Args:
         metadata_block (gemmi.cif.Block): Block containing imported metadata
         merge_to_file (str): Path to target file to merge metadata into
         output_file (str): Path to output file where merged result will be written
+        overwrite_existing (bool): If True, replace tags already present in the merge target
     
     Returns:
-        tuple: (success (bool), already_present_categories (set), already_present_items (set))
+        MergeMetadataResult
     """
     try:
         # Read the target file to check what already exists
         target_doc = gemmi.cif.read(merge_to_file)
         if len(target_doc) == 0:
             print("Error: No data blocks found in merge target file")
-            return False, set(), set()
+            return MergeMetadataResult(False, set(), set(), set(), set())
         
         target_block = target_doc[0]
+
+        if overwrite_existing:
+            import_tags = collect_tags_from_metadata_block(metadata_block)
+            overwritten_categories, overwritten_items = overwritten_tags_from_target(target_block, import_tags)
+            stripped = remove_conflicting_items_from_target(target_block, import_tags)
+            merged_block = gemmi.cif.Block(target_block.name)
+            for item in stripped:
+                merged_block.add_item(item)
+            for item in metadata_block:
+                merged_block.add_item(item)
+            out_doc = gemmi.cif.Document()
+            out_doc.add_copied_block(merged_block)
+            for bi in range(1, len(target_doc)):
+                out_doc.add_copied_block(target_doc[bi])
+            out_doc.write_file(output_file)
+            print(f"Successfully merged metadata into: {output_file} (overwrite existing)")
+            return MergeMetadataResult(True, set(), set(), overwritten_categories, overwritten_items)
         
         # Track what categories and items already exist in target file
         existing_categories = set()
@@ -321,7 +395,7 @@ def merge_metadata_to_file(metadata_block, merge_to_file, output_file):
             target_lines = f.readlines()
     except Exception as e:
         print(f"Error reading files: {e}")
-        return False, set(), set()
+        return MergeMetadataResult(False, set(), set(), set(), set())
     
     # Find where the first data block ends (before the second "data_" line)
     first_data_block_end = None
@@ -374,15 +448,16 @@ def merge_metadata_to_file(metadata_block, merge_to_file, output_file):
         with open(output_file, 'w', encoding='utf-8') as f:
             f.writelines(merged_lines)
         print(f"Successfully merged metadata into: {output_file}")
-        return True, already_present_categories, already_present_items
+        return MergeMetadataResult(True, already_present_categories, already_present_items, set(), set())
     except Exception as e:
         print(f"Error writing merged file {output_file}: {e}")
-        return False, set(), set()
+        return MergeMetadataResult(False, set(), set(), set(), set())
 
 
 def write_log_file(log_file, input_file, spec_files, requested_categories, requested_items, 
                    imported_categories, imported_items, skipped_specs, not_found_items, not_found_categories,
                    not_imported_categories=None, not_imported_items=None,
+                   overwritten_categories=None, overwritten_items=None,
                    macromolecule_safeguard_report: Optional[str] = None):
     """
     Write a log file with detailed information about the import process.
@@ -400,6 +475,8 @@ def write_log_file(log_file, input_file, spec_files, requested_categories, reque
         not_found_categories (set): Categories requested but not found in input file
         not_imported_categories (set, optional): Categories not imported because already present in target file
         not_imported_items (set, optional): Items not imported because already present in target file
+        overwritten_categories (set, optional): Categories replaced in merge target (overwrite mode)
+        overwritten_items (set, optional): Items replaced in merge target (overwrite mode)
     """
     try:
         with open(log_file, 'w', encoding='utf-8') as f:
@@ -493,6 +570,24 @@ def write_log_file(log_file, input_file, spec_files, requested_categories, reque
                 for item in sorted(not_imported_items):
                     f.write(f"  - {item}\n")
                 f.write("\n")
+
+            if overwritten_categories:
+                f.write("-" * 80 + "\n")
+                f.write("CATEGORIES OVERWRITTEN IN MERGE TARGET\n")
+                f.write("-" * 80 + "\n\n")
+                f.write("The following categories had existing data removed and replaced by imported metadata:\n")
+                for category in sorted(overwritten_categories):
+                    f.write(f"  - {category}\n")
+                f.write("\n")
+
+            if overwritten_items:
+                f.write("-" * 80 + "\n")
+                f.write("ITEMS OVERWRITTEN IN MERGE TARGET\n")
+                f.write("-" * 80 + "\n\n")
+                f.write("The following items had existing values or loops removed and replaced:\n")
+                for item in sorted(overwritten_items):
+                    f.write(f"  - {item}\n")
+                f.write("\n")
             
             # Summary
             f.write("-" * 80 + "\n")
@@ -508,6 +603,10 @@ def write_log_file(log_file, input_file, spec_files, requested_categories, reque
             f.write(f"Items not found: {len(not_found_items)}\n")
             if not_imported_items:
                 f.write(f"Items not imported (already present): {len(not_imported_items)}\n")
+            if overwritten_categories:
+                f.write(f"Categories overwritten in merge target: {len(overwritten_categories)}\n")
+            if overwritten_items:
+                f.write(f"Items overwritten in merge target: {len(overwritten_items)}\n")
             f.write(f"Specifications skipped: {len(skipped_specs)}\n")
 
             if macromolecule_safeguard_report:
@@ -525,7 +624,8 @@ def write_log_file(log_file, input_file, spec_files, requested_categories, reque
 
 
 def import_metadata(input_file, spec_files, output_file, merge_to_file=None, merge_output_file=None, 
-                   log_file=None, skipped_specs=None, disable_macromolecule_safeguards: bool = False):
+                   log_file=None, skipped_specs=None, disable_macromolecule_safeguards: bool = False,
+                   overwrite_existing: bool = False):
     """
     Import metadata from input mmCIF file based on specification.
     
@@ -538,6 +638,7 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
         log_file (str, optional): Path to log file to write
         skipped_specs (list, optional): List of tuples (spec_file, reason) for skipped specifications
         disable_macromolecule_safeguards (bool): If True, do not run reference-vs-target macromolecule checks.
+        overwrite_existing (bool): If True and merge_to_file is set, replace tags already present in the merge target.
     
     Returns:
         ImportMetadataOutcome: ok, exit_status (0 / 1 / 2), optional safeguard_result
@@ -654,7 +755,7 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
             not_found_categories = requested_categories - all_categories_in_file
             write_log_file(log_file, input_file, spec_files, requested_categories, requested_items,
                           imported_categories, imported_items, skipped_specs or [], not_found_items, not_found_categories,
-                          None, None, None)
+                          None, None, None, None, None)
         return ImportMetadataOutcome(False, 1, None)
 
     safeguard_result: Optional[SafeguardResult] = None
@@ -708,6 +809,8 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
                     not_found_categories,
                     None,
                     None,
+                    None,
+                    None,
                     rep,
                 )
             return ImportMetadataOutcome(False, 1, safeguard_result)
@@ -716,8 +819,17 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
     # If merge_to_file is provided, merge into that file
     not_imported_categories = set()
     not_imported_items = set()
+    overwritten_categories = set()
+    overwritten_items = set()
     if merge_to_file:
-        result, not_imported_categories, not_imported_items = merge_metadata_to_file(new_block, merge_to_file, merge_output_file)
+        merge_result = merge_metadata_to_file(
+            new_block, merge_to_file, merge_output_file, overwrite_existing=overwrite_existing
+        )
+        result = merge_result.success
+        not_imported_categories = merge_result.skipped_categories
+        not_imported_items = merge_result.skipped_items
+        overwritten_categories = merge_result.overwritten_categories
+        overwritten_items = merge_result.overwritten_items
     else:
         # Otherwise, create a new metadata file
         output_doc.add_copied_block(new_block)
@@ -769,9 +881,13 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
         
         # Adjust imported counts for merge mode: exclude what was not imported (already present)
         if merge_to_file:
-            # Only count what was actually merged (not skipped)
-            actually_imported_categories = imported_categories - not_imported_categories
-            actually_imported_items = imported_items - not_imported_items
+            if overwrite_existing:
+                actually_imported_categories = imported_categories
+                actually_imported_items = imported_items
+            else:
+                # Only count what was actually merged (not skipped)
+                actually_imported_categories = imported_categories - not_imported_categories
+                actually_imported_items = imported_items - not_imported_items
         else:
             # For non-merge mode, use the original counts
             actually_imported_categories = imported_categories
@@ -788,8 +904,10 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
             skipped_specs or [],
             not_found_items,
             not_found_categories,
-            not_imported_categories if merge_to_file else None,
-            not_imported_items if merge_to_file else None,
+            not_imported_categories if merge_to_file and not overwrite_existing else None,
+            not_imported_items if merge_to_file and not overwrite_existing else None,
+            overwritten_categories if merge_to_file and overwrite_existing else None,
+            overwritten_items if merge_to_file and overwrite_existing else None,
             safeguard_log,
         )
 
@@ -823,6 +941,11 @@ def main():
                        help="Include keyword categories from KEYWORDS.csv")
     parser.add_argument("-o", "--output", help="Output file name (default: [input_name]_metadata.cif)")
     parser.add_argument("--merge_to_file", help="File to merge imported metadata into (instead of creating a new file)")
+    parser.add_argument(
+        "--overwrite-existing",
+        action="store_true",
+        help="When merging, replace pairs/loops in the merge target that conflict with imported tags (default: skip existing)",
+    )
     parser.add_argument("--log", action="store_true", help="Generate a log file with detailed import information (automatically named based on output file)")
     parser.add_argument(
         "--no-macromolecule-safeguards",
@@ -838,6 +961,10 @@ def main():
         print(f"Error: Input file {args.input_file} does not exist")
         sys.exit(1)
     
+    if args.overwrite_existing and not args.merge_to_file:
+        print("Error: --overwrite-existing requires --merge_to_file")
+        sys.exit(1)
+
     # Validate merge_to_file if provided
     merge_output_file = None
     if args.merge_to_file:
@@ -984,6 +1111,7 @@ def main():
         log_file,
         skipped_specs,
         disable_macromolecule_safeguards=args.no_macromolecule_safeguards,
+        overwrite_existing=args.overwrite_existing,
     )
 
     if outcome.exit_status == 2:

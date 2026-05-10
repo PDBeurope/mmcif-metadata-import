@@ -59,17 +59,19 @@ This web interface provides a user-friendly way to use the `import_metadata.py` 
 
 2. **Upload Merge File** (optional): If you want to merge metadata into an existing file
 
-3. **Select Specifications**: 
+3. **Overwrite existing metadata** (optional): When a merge file is provided, check this to replace pairs/loops in the target that conflict with the import (same behavior as CLI `--overwrite-existing`).
+
+4. **Select Specifications**: 
    - Choose at least one method-specific specification (X-ray, EM, or NMR)
    - Optionally select additional specifications (macromolecules, citation, authors, funding, keywords)
 
-4. **Output Options**:
+5. **Output Options**:
    - Optionally specify a custom output filename
    - Check "Generate Log File" to get detailed import information
 
-5. **Submit**: Click "Import Metadata" to process your file
+6. **Submit**: Click "Import Metadata" to process your file
 
-6. **Download Results**: The results will be automatically downloaded as a ZIP file containing:
+7. **Download Results**: The results will be automatically downloaded as a ZIP file containing:
    - The output file (merged or imported metadata)
    - The log file (if requested)
 

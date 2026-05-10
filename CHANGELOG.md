@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Released]
 
+## [0.3.0] - 2026-05-10
+
+### Added
+- **Merge overwrite mode**: `--overwrite-existing` (CLI) and `import_metadata(..., overwrite_existing=True)` (Python). When merging, conflicting pairs and loops in the merge target’s first data block are removed and replaced with imported metadata; additional `data_` blocks are preserved. Requires `--merge_to_file` on the CLI (error if used alone).
+- **`MergeMetadataResult`** returned by **`merge_metadata_to_file()`**: `success`, `skipped_categories`, `skipped_items`, `overwritten_categories`, `overwritten_items`.
+- Import log sections **CATEGORIES OVERWRITTEN IN MERGE TARGET** and **ITEMS OVERWRITTEN IN MERGE TARGET** when overwrite mode is used; summary counts for overwritten categories/items.
+- Web app: checkbox **Overwrite existing metadata in merge target** (used when a merge file is uploaded).
+
+### Changed
+- Default merge behavior is unchanged: without `--overwrite-existing`, categories/items already present in the target are still skipped and listed under “not imported” in the log.
+
 ## [0.2.0] - 2026-05-09
 
 ### Added

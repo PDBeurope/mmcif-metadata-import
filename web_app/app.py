@@ -230,6 +230,8 @@ def process():
             log_path = os.path.join(temp_dir, f"{log_base}.log")
         
         # Call the import_metadata function
+        overwrite_existing = merge_to_path and request.form.get("overwrite_existing") == "on"
+
         outcome = import_metadata(
             input_path,
             spec_files,
@@ -238,6 +240,7 @@ def process():
             merge_output_path,
             log_path,
             skipped_specs if skipped_specs else None,
+            overwrite_existing=overwrite_existing,
         )
 
         if not outcome.ok:
