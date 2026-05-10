@@ -20,7 +20,7 @@ from werkzeug.utils import secure_filename
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 # Import the import_metadata function from the script
-from import_metadata import import_metadata
+from import_metadata import import_metadata, resolve_authors_spec_path
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)  # For flash messages
@@ -115,14 +115,15 @@ def process():
         additional_specs = {
             'macromolecules': str(base_dir / 'specs' / 'MACROMOLECULES.csv'),
             'citation': str(base_dir / 'specs' / 'CITATION.csv'),
-            'authors': str(base_dir / 'specs' / 'AUTHORS.csv'),
             'funding': str(base_dir / 'specs' / 'FUNDING.csv'),
             'keywords': str(base_dir / 'specs' / 'KEYWORDS.csv')
         }
         
         # Check if at least one spec is selected
         has_method_spec = any(request.form.get(flag) == 'on' for flag in method_flags.keys())
-        has_additional_spec = any(request.form.get(flag) == 'on' for flag in additional_specs.keys())
+        has_additional_spec = any(request.form.get(flag) == 'on' for flag in additional_specs.keys()) or request.form.get(
+            'authors'
+        ) == 'on'
         
         if not has_method_spec and not has_additional_spec:
             flash('Error: At least one specification option must be selected', 'error')
@@ -175,6 +176,17 @@ def process():
                     cleanup_temp_files(temp_dir)
                     return redirect(url_for('index'))
                 spec_files.append(spec_file)
+
+        if request.form.get('authors') == 'on':
+            profile_path = merge_to_path or input_path
+            authors_spec = resolve_authors_spec_path(profile_path, base_dir / 'specs')
+            if not authors_spec.exists():
+                authors_spec = base_dir / 'specs' / 'AUTHORS.csv'
+            if not authors_spec.exists():
+                flash('Error: Authors specification files are missing from specs/', 'error')
+                cleanup_temp_files(temp_dir)
+                return redirect(url_for('index'))
+            spec_files.append(str(authors_spec))
         
         # Determine output file path
         if merge_to_path:
