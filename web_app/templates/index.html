@@ -276,6 +276,13 @@
                         <input type="file" id="merge_to_file" name="merge_to_file" accept=".cif">
                         <div class="help-text">If provided, imported metadata will be merged into this file instead of creating a new file</div>
                     </div>
+                    <div class="form-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="overwrite_existing" name="overwrite_existing">
+                            <label for="overwrite_existing">Overwrite existing metadata in merge target</label>
+                        </div>
+                        <div class="help-text">When merging, replace categories/items that already exist in the merge file. Leave unchecked to keep existing values and only add new tags.</div>
+                    </div>
                 </div>
                 
                 <!-- Method-Specific Specifications -->

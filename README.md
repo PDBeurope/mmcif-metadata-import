@@ -2,7 +2,7 @@
 
 This tool imports metadata from mmCIF files into new metadata-only files or into existing models. It uses the gemmi library, with automatic method detection and method-specific CSV specification files.
 
-**Current version:** 0.2.0 — see [CHANGELOG](CHANGELOG.md) for release notes.
+**Current version:** 0.3.0 — see [CHANGELOG](CHANGELOG.md) for release notes.
 
 **Protein Data Bank in Europe (PDBe)** · [pdbe.org](https://www.ebi.ac.uk/pdbe)
 
@@ -44,7 +44,7 @@ pip install -r requirements-notebook.txt
 ## Usage
 
 ```bash
-mmcif-metadata-import <input_file> [--xray] [--xray_serial] [--em] [--nmr] [--macromolecules] [--citation] [--authors] [--funding] [--keywords] [-o output_file] [--merge_to_file target_file] [--log] [--no-macromolecule-safeguards]
+mmcif-metadata-import <input_file> [--xray] [--xray_serial] [--em] [--nmr] [--macromolecules] [--citation] [--authors] [--funding] [--keywords] [-o output_file] [--merge_to_file target_file] [--overwrite-existing] [--log] [--no-macromolecule-safeguards]
 ```
 
 ### Arguments
@@ -62,6 +62,7 @@ mmcif-metadata-import <input_file> [--xray] [--xray_serial] [--em] [--nmr] [--ma
 - `--keywords`: Optional flag to include keyword categories from specs/KEYWORDS.csv
 - `-o, --output`: Optional output file name (default: `[input_name]_metadata.cif`)
 - `--merge_to_file`: Optional file path to merge imported metadata into (instead of creating a new file). Metadata will be added to the first data block of the target file. The output file will be named `<originalname>_merged_with_<inputfilename>` in the same directory as the target file.
+- `--overwrite-existing`: Optional; only valid with `--merge_to_file`. Remove conflicting pairs and loops from the merge target’s first data block, then insert imported metadata (default without this flag: skip tags that already exist in the target).
 - `--log`: Optional flag to generate a log file with detailed information about the import process. The log file is automatically named based on the output file (same name with `.log` extension) and placed in the same directory as the output file.
 
 **Note**: At least one specification file must be provided.
@@ -72,9 +73,14 @@ mmcif-metadata-import <input_file> [--xray] [--xray_serial] [--em] [--nmr] [--ma
 - **1** — Failure (e.g. unreadable file, no items to import, merge write error).
 - **2** — Merge **succeeded** for non-macromolecule categories, but **macromolecule categories from `MACROMOLECULES.csv` were omitted** because safeguards failed. Use `--log` to see details.
 
-**Python API**: `import_metadata()` returns an **`ImportMetadataOutcome`** named tuple: `ok`, `exit_status` (same semantics as above), and optional `safeguard_result`. Do not rely on a plain boolean return value.
+**Python API**: `import_metadata()` returns an **`ImportMetadataOutcome`** named tuple: `ok`, `exit_status` (same semantics as above), and optional `safeguard_result`. Do not rely on a plain boolean return value. Use optional keyword **`overwrite_existing`** (default `False`) to match `--overwrite-existing`. **`merge_metadata_to_file()`** returns **`MergeMetadataResult`** (`success`, skipped and overwritten category/item sets).
 
-**Merge Mode**: When `--merge_to_file` is provided, the imported metadata will be merged into the first data block of the specified file. The metadata items will be added at the end of the first data block, before any subsequent data blocks. A new file will be created with the name pattern `<originalname>_merged_with_<inputfilename>` (e.g., if merging `target.cif` with metadata from `input.cif`, the output will be `target_merged_with_input.cif`). The original target file is not modified. **Important**: Categories and items that already exist in the target file will not be merged to avoid overwriting existing data. These will be reported in the log file as "Categories not imported" and "Items not imported". If `--merge_to_file` is not provided, a new metadata file will be created as specified by `-o/--output`.
+**Merge Mode**: When `--merge_to_file` is provided, the imported metadata will be merged into the first data block of the specified file. A new file will be created with the name pattern `<originalname>_merged_with_<inputfilename>` (e.g., if merging `target.cif` with metadata from `input.cif`, the output will be `target_merged_with_input.cif`). The original target file is not modified.
+
+- **Default**: Metadata items are appended at the end of the first data block (text splice). Categories and items that already exist in the target are **not** copied; the log lists them as **Categories not imported** / **Items not imported**.
+- **With `--overwrite-existing`**: Conflicting pairs and any loop that shares a column with the import are removed from the target’s first block, then all imported metadata for the request is added; the merged file is written with gemmi (first block rebuilt; further `data_` blocks are copied). The log lists **CATEGORIES OVERWRITTEN** / **ITEMS OVERWRITTEN** instead of “not imported” for those tags.
+
+If `--merge_to_file` is not provided, a new metadata file will be created as specified by `-o/--output`.
 
 **Method Validation**: The script automatically detects the input file's method and validates method-specific flags. If you try to use `--xray` on an EM file, the script will warn you and skip the X-ray specification to prevent importing incompatible metadata.
 
@@ -126,6 +132,9 @@ mmcif-metadata-import input.cif --xray --log
 # Combine merge with log file (log file automatically named based on merge output)
 mmcif-metadata-import input.cif --xray --merge_to_file target.cif --log
 # Log file will be: target_merged_with_input.log (same directory as target)
+
+# Merge and replace metadata that already exists in the target (overwrite mode)
+mmcif-metadata-import input.cif --xray --merge_to_file target.cif --overwrite-existing --log
 
 # Macromolecules + merge: safeguards may skip only macromolecule categories (exit code 2)
 mmcif-metadata-import reference.cif --macromolecules --merge_to_file target.cif --log
@@ -261,15 +270,17 @@ The log file contains:
 - **Imported Categories and Items**: Lists all categories and items that were successfully imported
 - **Categories Not Found**: Lists categories that were requested but not found in the input file
 - **Items Not Found**: Lists items that were requested but not found in the input file
-- **Categories Not Imported** (merge mode only): Lists categories that were not imported because they already exist in the target file
-- **Items Not Imported** (merge mode only): Lists items that were not imported because they already exist in the target file
-- **Summary**: Provides counts of requested vs imported categories/items, skipped specifications, categories not found, items not found, and (for merge mode) categories/items not imported
+- **Categories Not Imported** (merge mode only, default behavior): Categories skipped because they already exist in the target file
+- **Items Not Imported** (merge mode only, default behavior): Items skipped for the same reason
+- **Categories Overwritten** / **Items Overwritten** (merge mode with `--overwrite-existing`): Tags removed from the target and replaced by the import
+- **Summary**: Provides counts of requested vs imported categories/items, skipped specifications, categories/items not found, and (for merge mode) categories/items not imported or overwritten
 - **MACROMOLECULE SAFEGUARDS** (when macromolecule checks ran): Pass/fail summary and structured failure details if macromolecule categories were skipped
 
 This log file is useful for debugging and understanding what metadata was imported and what was skipped.
 
 ## Features
 
+- Optional **`--overwrite-existing`** merge mode to replace conflicting metadata in the target file
 - Macromolecule merge safeguards when merging with `--macromolecules`; CLI exit code **2** when only macromolecule categories are skipped; `import_metadata()` returns **`ImportMetadataOutcome`**
 - Supports both `.cif` and `.cif.V[ordinal]` input file extensions
 - Processes only the first data block in multi-block mmCIF files
