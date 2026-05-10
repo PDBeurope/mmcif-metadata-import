@@ -214,6 +214,54 @@ def detect_method_from_input(doc):
     raise ValueError(f"Unknown exptl.method: {exptl_method}")
 
 
+# Subset of detect_method_from_input() return values that denote electron microscopy.
+EM_METHOD_CODES = frozenset({"EM_MAP_MODEL", "EM_MAP_ONLY", "EM_MODEL_ONLY"})
+
+
+def block_has_atom_site(block: gemmi.cif.Block) -> bool:
+    """True if the block defines any _atom_site loop column (atomic coordinates present)."""
+    for item in block:
+        if item.loop is None:
+            continue
+        if any(tag.startswith("_atom_site.") for tag in item.loop.tags):
+            return True
+    return False
+
+
+def resolve_authors_spec_path(profile_mmCIF_path: str, spec_dir: Optional[Path] = None) -> Path:
+    """
+    Choose specs/AUTHORS_*.csv using the profile mmCIF (merge target when merging, else input).
+
+    - EM and no _atom_site -> AUTHORS_EM_MAP_ONLY.csv
+    - EM with _atom_site -> AUTHORS_EM_WITH_ATOM_SITE.csv
+    - Otherwise -> AUTHORS_DEFAULT.csv
+
+    If the method cannot be inferred (e.g. missing _exptl.method), returns AUTHORS.csv
+    (union of all author categories) as a safe default.
+    """
+    spec_dir = Path(spec_dir) if spec_dir is not None else PROJECT_ROOT / "specs"
+    fallback = spec_dir / "AUTHORS.csv"
+    try:
+        profile_doc = gemmi.cif.read(profile_mmCIF_path)
+    except Exception:
+        return fallback
+    if len(profile_doc) == 0:
+        return fallback
+    try:
+        method = detect_method_from_input(profile_doc)
+    except ValueError:
+        return fallback
+    block = profile_doc[0]
+    if method in EM_METHOD_CODES:
+        if block_has_atom_site(block):
+            chosen = spec_dir / "AUTHORS_EM_WITH_ATOM_SITE.csv"
+        else:
+            chosen = spec_dir / "AUTHORS_EM_MAP_ONLY.csv"
+    else:
+        chosen = spec_dir / "AUTHORS_DEFAULT.csv"
+    return chosen if chosen.exists() else fallback
+
+
 def get_spec_file_path(from_method, to_method):
     """
     Get the path to the specification CSV file based on FROM and TO methods.
@@ -934,7 +982,7 @@ def main():
     parser.add_argument("--citation", action="store_true", 
                        help="Include citation categories from CITATION.csv")
     parser.add_argument("--authors", action="store_true", 
-                       help="Include author categories from AUTHORS.csv")
+                       help="Include author categories (CSV chosen from merge target or input; see specs/AUTHORS*.csv)")
     parser.add_argument("--funding", action="store_true", 
                        help="Include funding categories from FUNDING.csv")
     parser.add_argument("--keywords", action="store_true", 
@@ -1087,7 +1135,6 @@ def main():
     additional_specs = [
         (args.macromolecules, "specs/MACROMOLECULES.csv", "macromolecules"),
         (args.citation, "specs/CITATION.csv", "citation"),
-        (args.authors, "specs/AUTHORS.csv", "authors"),
         (args.funding, "specs/FUNDING.csv", "funding"),
         (args.keywords, "specs/KEYWORDS.csv", "keywords")
     ]
@@ -1100,6 +1147,21 @@ def main():
                 sys.exit(1)
             spec_files.append(str(spec_path))
             print(f"Also using {description} specification file: {filename}")
+
+    if args.authors:
+        profile_path = args.merge_to_file if args.merge_to_file else args.input_file
+        authors_path = resolve_authors_spec_path(profile_path, PROJECT_ROOT / "specs")
+        if not authors_path.exists():
+            authors_path = resolve_spec_path("specs/AUTHORS.csv")
+        if not authors_path.exists():
+            print("Error: Authors specification file could not be resolved")
+            sys.exit(1)
+        spec_files.append(str(authors_path))
+        try:
+            rel = authors_path.relative_to(PROJECT_ROOT)
+        except ValueError:
+            rel = authors_path
+        print(f"Also using authors specification file: {rel}")
     
     # Run metadata import
     outcome = import_metadata(

@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Released]
 
+## [0.4.0] - 2026-05-10
+
+### Added
+- **Conditional author specifications**: `specs/AUTHORS_EM_MAP_ONLY.csv`, `AUTHORS_EM_WITH_ATOM_SITE.csv`, and `AUTHORS_DEFAULT.csv`. With **`--authors`**, the importer chooses one of these using a **profile** mmCIF (merge target when **`--merge_to_file`** is set, otherwise the input file): electron microscopy without an `_atom_site` loop uses the map-only set; EM with `_atom_site` uses the full EM set; other methods use audit + contact only. If `_exptl.method` (and EM `database_2` where required) cannot be determined, the tool falls back to **`specs/AUTHORS.csv`** (union of all three author categories).
+- **`resolve_authors_spec_path()`**, **`block_has_atom_site()`**, and **`EM_METHOD_CODES`** in `import_metadata.py`.
+- **Web app** and **`metadata_import.ipynb`**: authors checkbox uses the same resolution rules as the CLI.
+- **Developer demos**: `dev/temp_test/author_demo/run_author_demos.py` plus minimal mmCIF fixtures under `dev/temp_test/author_demo/` (outputs go to `author_demo/output/`).
+
+### Changed
+- CLI help text for **`--authors`** now refers to the dynamic `AUTHORS*.csv` selection.
+- **README**: documents author profiles, fallback, Python helpers, and the author demo script.
+
 ## [0.3.0] - 2026-05-10
 
 ### Added

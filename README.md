@@ -2,7 +2,7 @@
 
 This tool imports metadata from mmCIF files into new metadata-only files or into existing models. It uses the gemmi library, with automatic method detection and method-specific CSV specification files.
 
-**Current version:** 0.3.0 — see [CHANGELOG](CHANGELOG.md) for release notes.
+**Current version:** 0.4.0 — see [CHANGELOG](CHANGELOG.md) for release notes.
 
 **Protein Data Bank in Europe (PDBe)** · [pdbe.org](https://www.ebi.ac.uk/pdbe)
 
@@ -57,7 +57,7 @@ mmcif-metadata-import <input_file> [--xray] [--xray_serial] [--em] [--nmr] [--ma
 - `--macromolecules`: Optional flag to include macromolecules categories from specs/MACROMOLECULES.csv. When used **together with** `--merge_to_file`, the tool runs **reference-vs-target safeguards** so macromolecule metadata is only merged if polymer chains align (see [Macromolecule merge safeguards](#macromolecule-merge-safeguards)).
 - `--no-macromolecule-safeguards`: When merging with `--macromolecules`, skip reference-vs-target polymer checks (use only if you accept inconsistent macromolecule metadata).
 - `--citation`: Optional flag to include citation categories from specs/CITATION.csv
-- `--authors`: Optional flag to include author categories from specs/AUTHORS.csv
+- `--authors`: Optional flag to include author categories; the tool selects **`specs/AUTHORS*.csv`** from the merge target (if `--merge_to_file`) or the input file (details under **`--authors`** in [Optional specification files](#optional-specification-files)). Falls back to **`specs/AUTHORS.csv`** if the method cannot be inferred.
 - `--funding`: Optional flag to include funding categories from specs/FUNDING.csv
 - `--keywords`: Optional flag to include keyword categories from specs/KEYWORDS.csv
 - `-o, --output`: Optional output file name (default: `[input_name]_metadata.cif`)
@@ -189,9 +189,18 @@ With **`--merge_to_file`**, see [Macromolecule merge safeguards](#macromolecule-
 Contains citation-related categories:
 - `_citation`, `_citation_author`
 
-#### `--authors` (specs/AUTHORS.csv)
-Contains author-related categories:
-- `_pdbx_contact_author`, `_em_author_list`
+#### `--authors` (specs/AUTHORS*.csv)
+Author categories are chosen from a **profile** mmCIF: the merge target when **`--merge_to_file`** is set, otherwise the **input** file. The profile must allow method detection via `_exptl.method` (and for EM, `_database_2` as in `detect_method_from_input`). If that fails, the tool falls back to **`specs/AUTHORS.csv`** (all categories below).
+
+| Profile | Author categories imported |
+|--------|----------------------------|
+| Electron Microscopy, no `_atom_site` loop | `_pdbx_contact_author`, `_em_author_list` (`AUTHORS_EM_MAP_ONLY.csv`) |
+| Electron Microscopy, with `_atom_site` | `_audit_author`, `_pdbx_contact_author`, `_em_author_list` (`AUTHORS_EM_WITH_ATOM_SITE.csv`) |
+| All other methods (X-ray, NMR, etc.) | `_audit_author`, `_pdbx_contact_author` (`AUTHORS_DEFAULT.csv`) |
+
+**Python API**: `resolve_authors_spec_path(profile_mmCIF_path, spec_dir=None)` returns the chosen `Path` to an authors CSV (same rules as the CLI). **`block_has_atom_site(block)`** and **`EM_METHOD_CODES`** are also defined in `import_metadata.py` for reuse.
+
+**Trying it locally**: `python dev/temp_test/author_demo/run_author_demos.py` runs sample imports (including merge) and writes logs under `dev/temp_test/author_demo/output/`.
 
 #### `--funding` (specs/FUNDING.csv)
 Contains funding-related categories:
@@ -281,6 +290,7 @@ This log file is useful for debugging and understanding what metadata was import
 ## Features
 
 - Optional **`--overwrite-existing`** merge mode to replace conflicting metadata in the target file
+- **`--authors`** picks **`AUTHORS_EM_MAP_ONLY`**, **`AUTHORS_EM_WITH_ATOM_SITE`**, **`AUTHORS_DEFAULT`**, or **`AUTHORS`** (fallback) from the profile mmCIF’s method and `_atom_site` presence
 - Macromolecule merge safeguards when merging with `--macromolecules`; CLI exit code **2** when only macromolecule categories are skipped; `import_metadata()` returns **`ImportMetadataOutcome`**
 - Supports both `.cif` and `.cif.V[ordinal]` input file extensions
 - Processes only the first data block in multi-block mmCIF files
