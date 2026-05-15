@@ -472,30 +472,17 @@ def merge_metadata_to_file(
                     filtered_metadata_block.set_pair(item.pair[0], item.pair[1])
                     
             elif item.loop is not None:
-                # Check if any tags in the loop already exist
                 loop = item.loop
                 loop_tags = [tag for tag in loop.tags]
-                
-                # Check which tags should be included (not already present)
-                tags_to_include = []
-                for tag in loop_tags:
-                    category = get_category_from_item(tag)
-                    if tag in existing_items:
-                        already_present_items.add(tag)
-                        already_present_categories.add(category)
-                    else:
-                        tags_to_include.append(tag)
-                
-                # If we have tags to include, create a filtered loop
-                if tags_to_include:
-                    # For simplicity, if any tag is new, include the whole loop
-                    # This is a simplified approach
-                    filtered_metadata_block.add_item(item)
-                else:
-                    # All tags already exist, mark categories
+                if any(tag in existing_items for tag in loop_tags):
+                    # Target already has this loop (fully or partially). Do not splice the
+                    # whole loop when only some columns differ — that duplicates the category
+                    # (e.g. software) and breaks pdbx format check / cif2cif.
                     for tag in loop_tags:
-                        category = get_category_from_item(tag)
-                        already_present_categories.add(category)
+                        already_present_items.add(tag)
+                        already_present_categories.add(get_category_from_item(tag))
+                    continue
+                filtered_metadata_block.add_item(item)
         
         # Write the filtered metadata block to a temporary string
         metadata_doc = gemmi.cif.Document()
