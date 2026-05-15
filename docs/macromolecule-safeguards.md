@@ -36,7 +36,13 @@ They apply only to the macromolecule category set from `MACROMOLECULES.csv`; the
    - If the sets **differ**, the tool tries **content alignment**: same number of chains, and a **unique 1:1 match** where each pair has the same residue count and coordinate-derived sequence (order of chain names does not matter). When this succeeds, the log includes **`content_aligned`: true** and a **`chain_pairing`** map (reference ID → target ID).  
    - If content alignment cannot be established, the run fails with **`ALIGN-1-CONTENT-MISMATCH`** (macromolecule categories are not merged).
 
-3. **Per aligned chain pair**  
+3. **ID remapping on merge (content alignment only)**  
+   When chain names differ but content alignment succeeds, the importer **rewrites** macromolecule metadata before merge and **replaces** any existing macromolecule categories in the merge target (even without `--overwrite-existing`). Other requested categories still use the default skip-if-present merge behaviour.
+   - **`entity_id`** fields point at the target’s polymer **`entity.id`** values (e.g. reference entity `1` shared by chains `A`/`B` may expand to target entities `A` and `B`).
+   - Reference **`_entity`** polymer rows that would conflict with the target are omitted (the target’s polymer entity rows are kept).
+   - After merge, **`_struct_asym`** polymer rows are reconciled so **`_struct_asym.id`** matches **`_atom_site.label_asym_id`** and **`_struct_asym.entity_id`** matches **`_atom_site.label_entity_id`** for each polymer chain.
+
+4. **Per aligned chain pair**  
    For each reference polymer chain and its aligned target chain:
    - **Residue count**: number of distinct **`_atom_site.label_seq_id`** values (polymer positions).
    - **Sequence from coordinates**: a string derived from **`_atom_site.label_comp_id`** per position, in wwPDB-style one-letter form (standard amino acids as one letter; non-standard residues as **`(COMP_ID)`** in parentheses).

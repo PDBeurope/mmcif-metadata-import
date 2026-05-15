@@ -367,6 +367,287 @@ def pair_polymer_chains_by_content(
     return pairing
 
 
+def entity_id_for_asym(block: gemmi.cif.Block, asym_id: str) -> str:
+    """Resolve entity_id for label_asym_id from _struct_asym or _atom_site."""
+    sm = _struct_asym_map(block)
+    if asym_id in sm:
+        return sm[asym_id]
+    tbl = _atom_site_columns(block)
+    if not tbl:
+        return ""
+    tags, rows = tbl
+    ia = _find_column(tags, "_atom_site.label_asym_id")
+    ie = _find_column(tags, "_atom_site.label_entity_id")
+    ig = _find_column(tags, "_atom_site.group_PDB")
+    if ia is None or ie is None:
+        return ""
+    for row in rows:
+        if _cif_string_raw(row[ia]) != asym_id:
+            continue
+        if ig is not None and _cif_string_raw(row[ig]).upper() == "ATOM":
+            eid = _cif_string_raw(row[ie])
+            if eid and not _is_missing_cif_value(eid):
+                return eid
+    for row in rows:
+        if _cif_string_raw(row[ia]) == asym_id:
+            eid = _cif_string_raw(row[ie])
+            if eid and not _is_missing_cif_value(eid):
+                return eid
+    return ""
+
+
+def build_polymer_entity_remapping(
+    chain_pairing: Dict[str, str],
+    reference_block: gemmi.cif.Block,
+    target_block: gemmi.cif.Block,
+) -> Tuple[Dict[str, List[str]], Set[str]]:
+    """
+    Map reference polymer entity_id -> ordered target entity_id list (one per paired chain).
+
+    Also returns the set of reference polymer entity ids involved in the pairing.
+    """
+    ref_entity_to_targets: Dict[str, List[str]] = {}
+    ref_polymer_entities: Set[str] = set()
+    for ref_asym, tgt_asym in chain_pairing.items():
+        re = entity_id_for_asym(reference_block, ref_asym)
+        te = entity_id_for_asym(target_block, tgt_asym)
+        if not re or not te:
+            continue
+        ref_polymer_entities.add(re)
+        bucket = ref_entity_to_targets.setdefault(re, [])
+        if te not in bucket:
+            bucket.append(te)
+    for re in ref_entity_to_targets:
+        ref_entity_to_targets[re] = sorted(ref_entity_to_targets[re])
+    return ref_entity_to_targets, ref_polymer_entities
+
+
+def needs_content_id_remap(chain_pairing: Dict[str, str]) -> bool:
+    return any(ref_a != tgt_a for ref_a, tgt_a in chain_pairing.items())
+
+
+def _is_entity_id_tag(tag: str) -> bool:
+    return tag.endswith(".entity_id") or tag == "_entity.id"
+
+
+def _is_label_asym_tag(tag: str) -> bool:
+    if _is_entity_id_tag(tag):
+        return False
+    return "label_asym_id" in tag or tag.endswith(".asym_id")
+
+
+def _loop_item_from_table(tags: List[str], rows: List[List[str]]):
+    """Return a gemmi.cif.Item wrapping a loop built from tags and rows."""
+    if not tags:
+        raise ValueError("empty loop tags")
+    w = len(tags)
+    lines = ["data_", "loop_"]
+    lines.extend(tags)
+    for row in rows:
+        if len(row) != w:
+            raise ValueError(f"row width {len(row)} != {w}")
+        lines.append(" ".join(row))
+    doc = gemmi.cif.read_string("\n".join(lines))
+    for item in doc[0]:
+        if item.loop is not None:
+            return item
+    raise ValueError("failed to build loop from table")
+
+
+def _remap_cell_asym(value: str, chain_pairing: Dict[str, str]) -> str:
+    raw = _cif_string_raw(value)
+    if raw in chain_pairing:
+        return chain_pairing[raw]
+    return value
+
+
+def _expand_rows_for_entity_id(
+    row: List[str],
+    tags: List[str],
+    ref_entity_to_targets: Dict[str, List[str]],
+) -> List[List[str]]:
+    entity_cols = [i for i, t in enumerate(tags) if _is_entity_id_tag(t)]
+    if not entity_cols:
+        return [row]
+    ref_eid = _cif_string_raw(row[entity_cols[0]])
+    targets = ref_entity_to_targets.get(ref_eid)
+    if not targets:
+        return [row]
+    if len(targets) == 1:
+        new_row = list(row)
+        for ci in entity_cols:
+            new_row[ci] = targets[0]
+        return [new_row]
+    out: List[List[str]] = []
+    for te in targets:
+        new_row = list(row)
+        for ci in entity_cols:
+            new_row[ci] = te
+        out.append(new_row)
+    return out
+
+
+def _remap_loop_rows(
+    tags: List[str],
+    rows: List[List[str]],
+    category: str,
+    chain_pairing: Dict[str, str],
+    ref_entity_to_targets: Dict[str, List[str]],
+    ref_polymer_entities: Set[str],
+) -> List[List[str]]:
+    if category == "_entity":
+        ie = _find_column(tags, "_entity.id")
+        out: List[List[str]] = []
+        for row in rows:
+            if ie is not None:
+                eid = _cif_string_raw(row[ie])
+                if eid in ref_polymer_entities:
+                    continue
+            out.append(row)
+        return out
+
+    out_rows: List[List[str]] = []
+    asym_cols = [i for i, t in enumerate(tags) if _is_label_asym_tag(t)]
+    for row in rows:
+        new_row = list(row)
+        for ci in asym_cols:
+            new_row[ci] = _remap_cell_asym(new_row[ci], chain_pairing)
+        expanded = _expand_rows_for_entity_id(new_row, tags, ref_entity_to_targets)
+        out_rows.extend(expanded)
+    return out_rows
+
+
+def remap_macromolecule_metadata_for_target(
+    metadata_block: gemmi.cif.Block,
+    reference_block: gemmi.cif.Block,
+    target_block: gemmi.cif.Block,
+    chain_pairing: Dict[str, str],
+) -> gemmi.cif.Block:
+    """
+    Rewrite macromolecule metadata so entity and asym ids match the merge target coordinates.
+
+    Used after content-based chain pairing (reference asym names differ from target).
+    """
+    if not needs_content_id_remap(chain_pairing):
+        return metadata_block
+
+    ref_entity_to_targets, ref_polymer_entities = build_polymer_entity_remapping(
+        chain_pairing, reference_block, target_block
+    )
+
+    out = gemmi.cif.Block(metadata_block.name)
+    for item in metadata_block:
+        if item.pair is not None:
+            out.set_pair(item.pair[0], item.pair[1])
+        elif item.loop is not None and item.loop.tags:
+            cat = get_category_from_tag(item.loop.tags[0])
+            if cat not in MACROMOLECULE_CATEGORIES:
+                out.add_item(item)
+                continue
+            tags, rows = _loop_as_table(item.loop)
+            new_rows = _remap_loop_rows(
+                tags,
+                rows,
+                cat,
+                chain_pairing,
+                ref_entity_to_targets,
+                ref_polymer_entities,
+            )
+            if new_rows:
+                out.add_item(_loop_item_from_table(tags, new_rows))
+        else:
+            out.add_item(item)
+    return out
+
+
+def reconcile_polymer_struct_asym_in_block(block: gemmi.cif.Block) -> Tuple[gemmi.cif.Block, bool]:
+    """
+    Align _struct_asym polymer rows with _atom_site label_asym_id / label_entity_id.
+
+    Returns (block, changed). Replaces or adds rows for polymer chains inferred from coordinates.
+    """
+    desired: List[Tuple[str, str]] = []
+    for asym in sorted(polymer_asym_ids_fallback(block)):
+        eid = entity_id_for_asym(block, asym)
+        if eid:
+            desired.append((asym, eid))
+    if not desired:
+        return block, False
+
+    polymer_asym_set = {a for a, _ in desired}
+    loop = _get_loop(block, "_struct_asym.id")
+    if loop is None:
+        new_item = _loop_item_from_table(
+            ["_struct_asym.id", "_struct_asym.entity_id"],
+            [[asym, eid] for asym, eid in desired],
+        )
+        return _block_with_replaced_loop_item(block, "_struct_asym", new_item), True
+
+    tags, rows = _loop_as_table(loop)
+    ia = _find_column(tags, "_struct_asym.id")
+    ie = _find_column(tags, "_struct_asym.entity_id")
+    if ia is None or ie is None:
+        new_item = _loop_item_from_table(
+            ["_struct_asym.id", "_struct_asym.entity_id"],
+            [[asym, eid] for asym, eid in desired],
+        )
+        return _block_with_replaced_loop_item(block, "_struct_asym", new_item), True
+
+    kept: List[List[str]] = []
+    for row in rows:
+        asym = _cif_string_raw(row[ia])
+        if asym in polymer_asym_set:
+            continue
+        kept.append(list(row))
+
+    for asym, eid in desired:
+        new_row = ["?"] * len(tags)
+        new_row[ia] = asym
+        new_row[ie] = eid
+        kept.append(new_row)
+
+    return _block_with_replaced_loop_item(
+        block, "_struct_asym", _loop_item_from_table(tags, kept)
+    ), True
+
+
+def _block_with_replaced_loop_item(block: gemmi.cif.Block, category: str, new_item) -> gemmi.cif.Block:
+    """Return a copy of ``block`` with the loop for ``category`` replaced by ``new_item``."""
+    cat_tag = category if category.startswith("_") else f"_{category}"
+    out = gemmi.cif.Block(block.name)
+    replaced = False
+    for item in block:
+        if item.loop is not None and item.loop.tags:
+            if get_category_from_tag(item.loop.tags[0]) == cat_tag:
+                if not replaced:
+                    out.add_item(new_item)
+                    replaced = True
+                continue
+        if item.pair is not None:
+            out.set_pair(item.pair[0], item.pair[1])
+        else:
+            out.add_item(item)
+    if not replaced:
+        out.add_item(new_item)
+    return out
+
+
+def reconcile_polymer_struct_asym_in_mmcif_file(mmcif_path: str) -> bool:
+    """Load mmCIF, reconcile polymer _struct_asym in the first data block, write back if changed."""
+    doc = gemmi.cif.read(mmcif_path)
+    if not doc:
+        return False
+    new_block, changed = reconcile_polymer_struct_asym_in_block(doc[0])
+    if not changed:
+        return False
+    out_doc = gemmi.cif.Document()
+    out_doc.add_copied_block(new_block)
+    for bi in range(1, len(doc)):
+        out_doc.add_copied_block(doc[bi])
+    out_doc.write_file(mmcif_path)
+    return True
+
+
 @dataclass
 class SafeguardResult:
     ok: bool
