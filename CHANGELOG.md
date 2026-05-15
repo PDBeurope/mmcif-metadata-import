@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Released]
 
+## [0.5.0] - 2026-05-15
+
+### Changed
+- Macromolecule merge safeguards: when reference and target polymer **`label_asym_id`** sets differ, align chains by **coordinate-derived sequence** (unique 1:1 content match) instead of failing immediately. Failure rule **`ALIGN-1-CONTENT-MISMATCH`** replaces **`ALIGN-1-ASYMM-SET`** for unalignable cases. Successful content alignment is logged as **`content_aligned`** and **`chain_pairing`** in safeguard JSON.
+
+### Added
+- **`pair_polymer_chains_by_content()`** and **`polymer_profiles_by_asym()`** in `polymer_safeguards.py`; unit tests for renamed-chain and content-mismatch cases.
+
+### Documentation
+- [`docs/macromolecule-safeguards.md`](docs/macromolecule-safeguards.md) and README updated for content alignment and new rule code.
+
 ## [0.4.0] - 2026-05-10
 
 ### Added

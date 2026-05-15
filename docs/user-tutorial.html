@@ -377,8 +377,12 @@ mmcif-metadata-import input.cif --nmr -o my_output.cif
 # Merge into an existing file
 mmcif-metadata-import input.cif --xray --merge_to_file target.cif
 
+# Macromolecules + merge (reference vs target polymer safeguards; see macromolecule-safeguards.md)
+mmcif-metadata-import reference.cif --macromolecules --merge_to_file target.cif --log
+
 # Detailed log
 mmcif-metadata-import input.cif --xray --log</code></pre>
+        <p class="note" style="margin-top: 0.75rem;">When merging <strong>macromolecules</strong>, the tool compares polymer chains on reference and target (by chain ID or by coordinate-derived sequence). See <a href="macromolecule-safeguards.md">macromolecule-safeguards.md</a> for rule codes and log fields.</p>
       </section>
 
       <section id="web">

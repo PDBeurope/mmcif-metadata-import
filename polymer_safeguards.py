@@ -321,18 +321,72 @@ def atom_site_sequence_and_count(
     return len(ordered), "".join(parts)
 
 
+PolymerProfile = Tuple[int, str]
+
+
+def polymer_profiles_by_asym(
+    block: gemmi.cif.Block, mode: str
+) -> Dict[str, PolymerProfile]:
+    """label_asym_id -> (residue_count, atom_site_sequence) for each polymer chain."""
+    asym_ids = polymer_asym_ids_for_mode(block, mode)
+    return {a: atom_site_sequence_and_count(block, a) for a in asym_ids}
+
+
+def pair_polymer_chains_by_content(
+    reference_profiles: Dict[str, PolymerProfile],
+    target_profiles: Dict[str, PolymerProfile],
+) -> Optional[Dict[str, str]]:
+    """
+    Map reference label_asym_id -> target label_asym_id when chains match by content.
+
+    Requires equal chain counts, matching multisets of (count, sequence), and a unique
+    1:1 pairing. Returns None if alignment cannot be established.
+    """
+    if len(reference_profiles) != len(target_profiles):
+        return None
+    if not reference_profiles and not target_profiles:
+        return {}
+
+    ref_multiset = sorted(reference_profiles.values())
+    tgt_multiset = sorted(target_profiles.values())
+    if ref_multiset != tgt_multiset:
+        return None
+
+    pairing: Dict[str, str] = {}
+    used_target: Set[str] = set()
+    for ref_asym, ref_profile in reference_profiles.items():
+        candidates = [
+            tgt_asym
+            for tgt_asym, tgt_profile in target_profiles.items()
+            if tgt_asym not in used_target and tgt_profile == ref_profile
+        ]
+        if len(candidates) != 1:
+            return None
+        pairing[ref_asym] = candidates[0]
+        used_target.add(candidates[0])
+    return pairing
+
+
 @dataclass
 class SafeguardResult:
     ok: bool
     mode: str
     failures: List[Dict[str, Any]] = field(default_factory=list)
     checked_asym_ids: List[str] = field(default_factory=list)
+    chain_pairing: Dict[str, str] = field(default_factory=dict)
+    content_aligned: bool = False
 
     def to_json_fragment(self) -> str:
-        return json.dumps(
-            {"ok": self.ok, "mode": self.mode, "failures": self.failures, "checked_asym_ids": self.checked_asym_ids},
-            indent=2,
-        )
+        payload: Dict[str, Any] = {
+            "ok": self.ok,
+            "mode": self.mode,
+            "failures": self.failures,
+            "checked_asym_ids": self.checked_asym_ids,
+        }
+        if self.content_aligned:
+            payload["content_aligned"] = True
+            payload["chain_pairing"] = self.chain_pairing
+        return json.dumps(payload, indent=2)
 
 
 def validate_macromolecule_merge(reference_block: gemmi.cif.Block, target_block: gemmi.cif.Block) -> SafeguardResult:
@@ -344,44 +398,65 @@ def validate_macromolecule_merge(reference_block: gemmi.cif.Block, target_block:
     tgt_asym = polymer_asym_ids_for_mode(target_block, mode)
 
     failures: List[Dict[str, Any]] = []
+    content_aligned = False
+    chain_pairing: Dict[str, str] = {}
 
-    if ref_asym != tgt_asym:
-        failures.append(
-            {
-                "rule": "ALIGN-1-ASYMM-SET",
-                "mode": mode,
-                "reference_asym_ids": sorted(ref_asym),
-                "target_asym_ids": sorted(tgt_asym),
-            }
-        )
-        return SafeguardResult(False, mode, failures, sorted(ref_asym | tgt_asym))
+    if ref_asym == tgt_asym:
+        chain_pairing = {a: a for a in ref_asym}
+    else:
+        ref_profiles = polymer_profiles_by_asym(reference_block, mode)
+        tgt_profiles = polymer_profiles_by_asym(target_block, mode)
+        paired = pair_polymer_chains_by_content(ref_profiles, tgt_profiles)
+        if paired is None:
+            failures.append(
+                {
+                    "rule": "ALIGN-1-CONTENT-MISMATCH",
+                    "mode": mode,
+                    "reference_asym_ids": sorted(ref_asym),
+                    "target_asym_ids": sorted(tgt_asym),
+                    "reference_chain_count": len(ref_asym),
+                    "target_chain_count": len(tgt_asym),
+                }
+            )
+            return SafeguardResult(
+                False,
+                mode,
+                failures,
+                sorted(ref_asym | tgt_asym),
+                {},
+                False,
+            )
+        chain_pairing = paired
+        content_aligned = True
 
     asym_ids = sorted(ref_asym)
     if not asym_ids:
-        return SafeguardResult(True, mode, [], [])
+        return SafeguardResult(True, mode, [], [], chain_pairing, content_aligned)
 
     sm_r = _struct_asym_map(reference_block)
     sm_t = _struct_asym_map(target_block)
 
-    for asym in asym_ids:
-        cr, sr = atom_site_sequence_and_count(reference_block, asym)
-        ct, st = atom_site_sequence_and_count(target_block, asym)
+    for ref_asym_id in asym_ids:
+        tgt_asym_id = chain_pairing[ref_asym_id]
+        cr, sr = atom_site_sequence_and_count(reference_block, ref_asym_id)
+        ct, st = atom_site_sequence_and_count(target_block, tgt_asym_id)
         if cr != ct or sr != st:
-            failures.append(
-                {
-                    "rule": "ALIGN-2-LENGTH-OR-ATOM-SEQ",
-                    "label_asym_id": asym,
-                    "reference_count": cr,
-                    "target_count": ct,
-                    "reference_atom_site_seq": sr,
-                    "target_atom_site_seq": st,
-                }
-            )
+            entry: Dict[str, Any] = {
+                "rule": "ALIGN-2-LENGTH-OR-ATOM-SEQ",
+                "label_asym_id": ref_asym_id,
+                "reference_count": cr,
+                "target_count": ct,
+                "reference_atom_site_seq": sr,
+                "target_atom_site_seq": st,
+            }
+            if content_aligned:
+                entry["target_label_asym_id"] = tgt_asym_id
+            failures.append(entry)
             continue
 
         if mode == "entity":
-            er = sm_r.get(asym)
-            et = sm_t.get(asym)
+            er = sm_r.get(ref_asym_id)
+            et = sm_t.get(tgt_asym_id)
             if er and et:
                 pr = _entity_poly_one_letter(reference_block, er)
                 pt = _entity_poly_one_letter(target_block, et)
@@ -389,7 +464,8 @@ def validate_macromolecule_merge(reference_block: gemmi.cif.Block, target_block:
                     failures.append(
                         {
                             "rule": "ALIGN-3-REF-ATOM-VS-ENTITY-POLY",
-                            "label_asym_id": asym,
+                            "label_asym_id": ref_asym_id,
+                            "target_label_asym_id": tgt_asym_id,
                             "entity_id": er,
                             "atom_site_seq": sr,
                             "entity_poly_seq": pr,
@@ -399,7 +475,8 @@ def validate_macromolecule_merge(reference_block: gemmi.cif.Block, target_block:
                     failures.append(
                         {
                             "rule": "ALIGN-3-TGT-ATOM-VS-ENTITY-POLY",
-                            "label_asym_id": asym,
+                            "label_asym_id": ref_asym_id,
+                            "target_label_asym_id": tgt_asym_id,
                             "entity_id": et,
                             "atom_site_seq": st,
                             "entity_poly_seq": pt,
@@ -409,13 +486,16 @@ def validate_macromolecule_merge(reference_block: gemmi.cif.Block, target_block:
                     failures.append(
                         {
                             "rule": "ALIGN-3-ENTITY-POLY-MISMATCH",
-                            "label_asym_id": asym,
+                            "label_asym_id": ref_asym_id,
+                            "target_label_asym_id": tgt_asym_id,
                             "reference_entity_poly": pr,
                             "target_entity_poly": pt,
                         }
                     )
 
-    return SafeguardResult(len(failures) == 0, mode, failures, asym_ids)
+    return SafeguardResult(
+        len(failures) == 0, mode, failures, asym_ids, chain_pairing, content_aligned
+    )
 
 
 def strip_macromolecule_categories(block: gemmi.cif.Block) -> gemmi.cif.Block:

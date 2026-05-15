@@ -2,7 +2,7 @@
 
 This tool imports metadata from mmCIF files into new metadata-only files or into existing models. It uses the gemmi library, with automatic method detection and method-specific CSV specification files.
 
-**Current version:** 0.4.0 — see [CHANGELOG](CHANGELOG.md) for release notes.
+**Current version:** 0.5.0 — see [CHANGELOG](CHANGELOG.md) for release notes.
 
 **Protein Data Bank in Europe (PDBe)** · [pdbe.org](https://www.ebi.ac.uk/pdbe)
 
@@ -145,9 +145,9 @@ mmcif-metadata-import reference.cif --macromolecules --merge_to_file target.cif 
 
 ## Macromolecule merge safeguards
 
-When **`--macromolecules`** and **`--merge_to_file`** are both set, the **reference** file is the positional `input_file` and the **target** is `--merge_to_file`. Before copying categories from `specs/MACROMOLECULES.csv`, the tool checks that polymer chains in the two files **match** (same `label_asym_id` set, compatible residue counts and sequences). If the check fails, **only** those macromolecule categories are left out of the merge; **other** requested categories (e.g. `--xray` + `--macromolecules`) are still merged, and the CLI exits with **code 2**.
+When **`--macromolecules`** and **`--merge_to_file`** are both set, the **reference** file is the positional `input_file` and the **target** is `--merge_to_file`. Before copying categories from `specs/MACROMOLECULES.csv`, the tool checks that polymer chains in the two files **match** (same `label_asym_id` set, or the same polymer content under different chain names; compatible residue counts and sequences per aligned pair). If the check fails, **only** those macromolecule categories are left out of the merge; **other** requested categories (e.g. `--xray` + `--macromolecules`) are still merged, and the CLI exits with **code 2**.
 
-- **Rule codes in logs** (`ALIGN-1-ASYMM-SET`, etc.) and what each check does: [`docs/macromolecule-safeguards.md`](docs/macromolecule-safeguards.md).
+- **Rule codes in logs** (`ALIGN-1-CONTENT-MISMATCH`, etc.) and what each check does: [`docs/macromolecule-safeguards.md`](docs/macromolecule-safeguards.md).
 
 ## Method Detection
 
@@ -291,7 +291,7 @@ This log file is useful for debugging and understanding what metadata was import
 
 - Optional **`--overwrite-existing`** merge mode to replace conflicting metadata in the target file
 - **`--authors`** picks **`AUTHORS_EM_MAP_ONLY`**, **`AUTHORS_EM_WITH_ATOM_SITE`**, **`AUTHORS_DEFAULT`**, or **`AUTHORS`** (fallback) from the profile mmCIF’s method and `_atom_site` presence
-- Macromolecule merge safeguards when merging with `--macromolecules`; CLI exit code **2** when only macromolecule categories are skipped; `import_metadata()` returns **`ImportMetadataOutcome`**
+- Macromolecule merge safeguards when merging with `--macromolecules` (including **content-based** chain alignment when `label_asym_id` names differ); CLI exit code **2** when only macromolecule categories are skipped; `import_metadata()` returns **`ImportMetadataOutcome`**
 - Supports both `.cif` and `.cif.V[ordinal]` input file extensions
 - Processes only the first data block in multi-block mmCIF files
 - Handles both single items and loop structures in mmCIF files
