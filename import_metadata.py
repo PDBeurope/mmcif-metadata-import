@@ -24,6 +24,9 @@ from polymer_safeguards import (
     macromolecule_spec_in_use,
     block_has_items,
     SafeguardResult,
+    needs_content_id_remap,
+    remap_macromolecule_metadata_for_target,
+    reconcile_polymer_struct_asym_in_mmcif_file,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -317,6 +320,36 @@ def remove_conflicting_items_from_target(target_block, import_tags):
     return out
 
 
+def remove_categories_from_target(target_block, categories):
+    """Copy target_block, omitting entire categories (pairs and loops)."""
+    out = gemmi.cif.Block(target_block.name)
+    for item in target_block:
+        if item.pair is not None:
+            if get_category_from_item(item.pair[0]) in categories:
+                continue
+            out.set_pair(item.pair[0], item.pair[1])
+        elif item.loop is not None:
+            if item.loop.tags and get_category_from_item(item.loop.tags[0]) in categories:
+                continue
+            out.add_item(item)
+    return out
+
+
+def overwritten_categories_from_target(target_block, categories):
+    """Categories (and item tags) present in the target that belong to ``categories``."""
+    overwritten_items = set()
+    for item in target_block:
+        if item.pair is not None:
+            if get_category_from_item(item.pair[0]) in categories:
+                overwritten_items.add(item.pair[0])
+        elif item.loop is not None:
+            if item.loop.tags and get_category_from_item(item.loop.tags[0]) in categories:
+                for tag in item.loop.tags:
+                    overwritten_items.add(tag)
+    overwritten_categories = {get_category_from_item(t) for t in overwritten_items}
+    return overwritten_categories, overwritten_items
+
+
 def overwritten_tags_from_target(target_block, import_tags):
     """Tags (and derived categories) in the target that are replaced when import_tags are merged."""
     overwritten_items = set()
@@ -332,18 +365,28 @@ def overwritten_tags_from_target(target_block, import_tags):
     return overwritten_categories, overwritten_items
 
 
-def merge_metadata_to_file(metadata_block, merge_to_file, output_file, overwrite_existing=False):
+def merge_metadata_to_file(
+    metadata_block,
+    merge_to_file,
+    output_file,
+    overwrite_existing=False,
+    overwrite_macromolecule_categories=False,
+):
     """
     Merge imported metadata into the first data block of a target file.
     By default, skips categories/items that already exist in the target file (text splice).
     If overwrite_existing is True, removes conflicting pairs/loops from the target first,
     then appends all imported metadata and writes the full document via gemmi.
+    If overwrite_macromolecule_categories is True (and overwrite_existing is False), removes
+    only MACROMOLECULE_CATEGORIES from the target before a gemmi merge (used after content-aligned
+    chain remapping so bare target polymer rows are replaced without a global overwrite).
 
     Args:
         metadata_block (gemmi.cif.Block): Block containing imported metadata
         merge_to_file (str): Path to target file to merge metadata into
         output_file (str): Path to output file where merged result will be written
         overwrite_existing (bool): If True, replace tags already present in the merge target
+        overwrite_macromolecule_categories (bool): Replace macromolecule categories only
     
     Returns:
         MergeMetadataResult
@@ -356,6 +399,27 @@ def merge_metadata_to_file(metadata_block, merge_to_file, output_file, overwrite
             return MergeMetadataResult(False, set(), set(), set(), set())
         
         target_block = target_doc[0]
+
+        if overwrite_macromolecule_categories and not overwrite_existing:
+            overwritten_categories, overwritten_items = overwritten_categories_from_target(
+                target_block, MACROMOLECULE_CATEGORIES
+            )
+            stripped = remove_categories_from_target(target_block, MACROMOLECULE_CATEGORIES)
+            merged_block = gemmi.cif.Block(target_block.name)
+            for item in stripped:
+                merged_block.add_item(item)
+            for item in metadata_block:
+                merged_block.add_item(item)
+            out_doc = gemmi.cif.Document()
+            out_doc.add_copied_block(merged_block)
+            for bi in range(1, len(target_doc)):
+                out_doc.add_copied_block(target_doc[bi])
+            out_doc.write_file(output_file)
+            print(
+                f"Successfully merged metadata into: {output_file} "
+                f"(overwrite macromolecule categories only)"
+            )
+            return MergeMetadataResult(True, set(), set(), overwritten_categories, overwritten_items)
 
         if overwrite_existing:
             import_tags = collect_tags_from_metadata_block(metadata_block)
@@ -835,6 +899,25 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
             print(f"Error during macromolecule safeguard validation: {e}")
             return ImportMetadataOutcome(False, 1, None)
 
+    if (
+        merge_to_file
+        and safeguard_result
+        and safeguard_result.content_aligned
+        and needs_content_id_remap(safeguard_result.chain_pairing)
+    ):
+        try:
+            tgt_doc = gemmi.cif.read(merge_to_file)
+            if tgt_doc:
+                new_block = remap_macromolecule_metadata_for_target(
+                    new_block,
+                    block,
+                    tgt_doc[0],
+                    safeguard_result.chain_pairing,
+                )
+        except Exception as e:
+            print(f"Error remapping macromolecule metadata to target chain ids: {e}")
+            return ImportMetadataOutcome(False, 1, safeguard_result)
+
     if not block_has_items(new_block):
         if not merge_to_file:
             print("No items to include in output after safeguards")
@@ -870,14 +953,38 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
     overwritten_categories = set()
     overwritten_items = set()
     if merge_to_file:
-        merge_result = merge_metadata_to_file(
-            new_block, merge_to_file, merge_output_file, overwrite_existing=overwrite_existing
+        force_macromolecule_overwrite = bool(
+            safeguard_result
+            and safeguard_result.content_aligned
+            and needs_content_id_remap(safeguard_result.chain_pairing)
         )
+        merge_result = merge_metadata_to_file(
+            new_block,
+            merge_to_file,
+            merge_output_file,
+            overwrite_existing=overwrite_existing,
+            overwrite_macromolecule_categories=force_macromolecule_overwrite,
+        )
+        if force_macromolecule_overwrite and not overwrite_existing:
+            print(
+                "Note: existing macromolecule categories in the merge target were replaced "
+                "because content-aligned chain remapping was applied."
+            )
         result = merge_result.success
         not_imported_categories = merge_result.skipped_categories
         not_imported_items = merge_result.skipped_items
         overwritten_categories = merge_result.overwritten_categories
         overwritten_items = merge_result.overwritten_items
+        if (
+            result
+            and safeguard_result
+            and safeguard_result.content_aligned
+            and needs_content_id_remap(safeguard_result.chain_pairing)
+        ):
+            try:
+                reconcile_polymer_struct_asym_in_mmcif_file(merge_output_file)
+            except Exception as e:
+                print(f"Warning: polymer _struct_asym reconciliation failed: {e}")
     else:
         # Otherwise, create a new metadata file
         output_doc.add_copied_block(new_block)

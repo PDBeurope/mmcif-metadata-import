@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Released]
 
+## [0.5.2] - 2026-05-15
+
+### Changed
+- After successful content-aligned chain remapping, macromolecule categories in the merge target are **always replaced** (selective overwrite of `MACROMOLECULES.csv` categories only), so bare target `_entity` / `_entity_poly` rows do not block a clean merge when `--overwrite-existing` is not set.
+
+## [0.5.1] - 2026-05-15
+
+### Fixed
+- Content-aligned macromolecule merges now **remap `entity_id` references** to the target model and **reconcile polymer `_struct_asym`** with `_atom_site`, so merged mmCIF files do not mix reference chain names (e.g. `A`/`B`) with target coordinates (`Axp`/`Bxp`).
+
 ## [0.5.0] - 2026-05-15
 
 ### Changed

@@ -1,14 +1,19 @@
 """Unit tests for polymer_safeguards."""
 
 import unittest
+from typing import List
 
 import gemmi
 
 from polymer_safeguards import (
     atom_site_sequence_and_count,
+    build_polymer_entity_remapping,
     pair_polymer_chains_by_content,
+    reconcile_polymer_struct_asym_in_block,
+    remap_macromolecule_metadata_for_target,
     strip_macromolecule_categories,
     validate_macromolecule_merge,
+    _struct_asym_map,
 )
 
 
@@ -191,6 +196,99 @@ ATOM X 2 ALA
         tgt = {"Axp": (2, "AG"), "Bxp": (2, "ST")}
         self.assertEqual(pair_polymer_chains_by_content(ref, tgt), {"A": "Axp", "B": "Bxp"})
         self.assertIsNone(pair_polymer_chains_by_content(ref, {"Axp": (2, "AA")}))
+
+    def test_remap_entity_poly_to_target_entity_ids(self):
+        ref_cif = """data_test
+loop_
+_entity.id
+_entity.type
+1 polymer
+loop_
+_struct_asym.id
+_struct_asym.entity_id
+A 1
+B 1
+loop_
+_entity_poly.entity_id
+_entity_poly.pdbx_seq_one_letter_code
+1 AG
+loop_
+_atom_site.group_PDB
+_atom_site.label_asym_id
+_atom_site.label_seq_id
+_atom_site.label_comp_id
+_atom_site.label_entity_id
+ATOM A 1 ALA A
+ATOM A 2 GLY A
+ATOM B 1 SER B
+ATOM B 2 THR B
+"""
+        tgt_cif = """data_test
+loop_
+_entity.id
+_entity.type
+A polymer
+B polymer
+loop_
+_atom_site.group_PDB
+_atom_site.label_asym_id
+_atom_site.label_seq_id
+_atom_site.label_comp_id
+_atom_site.label_entity_id
+ATOM Axp 1 ALA A
+ATOM Axp 2 GLY A
+ATOM Bxp 1 SER B
+ATOM Bxp 2 THR B
+"""
+        ref = _read(ref_cif)
+        tgt = _read(tgt_cif)
+        meta = _read("""data_test
+loop_
+_entity_poly.entity_id
+_entity_poly.pdbx_seq_one_letter_code
+1 AG
+""")
+        pairing = {"A": "Axp", "B": "Bxp"}
+        out = remap_macromolecule_metadata_for_target(meta, ref, tgt, pairing)
+        self.assertEqual(_entity_poly_ids_from_block(out), ["A", "B"])
+
+    def test_reconcile_struct_asym_from_atom_site(self):
+        cif = """data_test
+loop_
+_entity.id
+_entity.type
+A polymer
+B polymer
+loop_
+_atom_site.group_PDB
+_atom_site.label_asym_id
+_atom_site.label_seq_id
+_atom_site.label_comp_id
+_atom_site.label_entity_id
+ATOM Axp 1 ALA A
+ATOM Axp 2 GLY A
+ATOM Bxp 1 SER B
+ATOM Bxp 2 THR B
+"""
+        b = _read(cif)
+        new_b, changed = reconcile_polymer_struct_asym_in_block(b)
+        self.assertTrue(changed)
+        sm = _struct_asym_map(new_b)
+        self.assertEqual(sm.get("Axp"), "A")
+        self.assertEqual(sm.get("Bxp"), "B")
+
+
+def _entity_poly_ids_from_block(block) -> List[str]:
+    from polymer_safeguards import _get_loop, _loop_as_table, _find_column, _cif_string_raw
+
+    loop = _get_loop(block, "_entity_poly.entity_id")
+    if not loop:
+        return []
+    tags, rows = _loop_as_table(loop)
+    ie = _find_column(tags, "_entity_poly.entity_id")
+    if ie is None:
+        return []
+    return sorted({_cif_string_raw(row[ie]) for row in rows})
 
 
 if __name__ == "__main__":
