@@ -31,11 +31,16 @@ They apply only to the macromolecule category set from `MACROMOLECULES.csv`; the
 1. **Which polymer chains exist**  
    The tool builds the set of **`_atom_site.label_asym_id`** values that count as **polymer chains** on reference and target, using the same **mode** on both sides (see next section).
 
-2. **Per shared chain**  
-   For each `label_asym_id` that appears on **both** sides:
+2. **Chain alignment (names or content)**  
+   - If the polymer **`label_asym_id`** sets are **identical** on both sides, each reference chain is compared to the target chain with the **same** ID.  
+   - If the sets **differ**, the tool tries **content alignment**: same number of chains, and a **unique 1:1 match** where each pair has the same residue count and coordinate-derived sequence (order of chain names does not matter). When this succeeds, the log includes **`content_aligned`: true** and a **`chain_pairing`** map (reference ID → target ID).  
+   - If content alignment cannot be established, the run fails with **`ALIGN-1-CONTENT-MISMATCH`** (macromolecule categories are not merged).
+
+3. **Per aligned chain pair**  
+   For each reference polymer chain and its aligned target chain:
    - **Residue count**: number of distinct **`_atom_site.label_seq_id`** values (polymer positions).
    - **Sequence from coordinates**: a string derived from **`_atom_site.label_comp_id`** per position, in wwPDB-style one-letter form (standard amino acids as one letter; non-standard residues as **`(COMP_ID)`** in parentheses).
-   - **Entity mode only**: that atom-site sequence is also compared to **`_entity_poly.pdbx_seq_one_letter_code`** for the entity linked to the chain, and the reference and target entity-poly strings are compared when both are present.
+   - **Entity mode only**: that atom-site sequence is also compared to **`_entity_poly.pdbx_seq_one_letter_code`** for the entity linked to the chain on that side, and the reference and target entity-poly strings are compared when both are present.
 
 If every required check passes, macromolecule metadata is merged. If any check fails, **none** of the macromolecule categories from the safeguard set are merged for that run (all-or-nothing for those categories).
 
@@ -56,13 +61,15 @@ The log / JSON includes **`mode`**:
 
 These are the values of the **`rule`** field in each object inside **`failures`** in the JSON.
 
-### `ALIGN-1-ASYMM-SET`
+### `ALIGN-1-CONTENT-MISMATCH`
 
-**Meaning:** The set of polymer **`label_asym_id`** values on the reference does not match the set on the target (same IDs required; order does not matter).
+**Meaning:** Polymer **`label_asym_id`** sets differ **and** chains cannot be aligned by content: different chain counts, no matching multiset of coordinate-derived sequences, or ambiguous pairing (e.g. two chains with identical sequence on one side).
 
-**Typical cause:** Different chain naming between files (e.g. `A` vs `Axp`), or one file has extra/missing polymer chains.
+**Typical cause:** Genuinely different structures (extra/missing chain, different sequence), or duplicate polymer profiles that prevent a unique match.
 
-**Fields (among others):** `reference_asym_ids`, `target_asym_ids`, `mode`.
+**Fields (among others):** `reference_asym_ids`, `target_asym_ids`, `reference_chain_count`, `target_chain_count`, `mode`.
+
+**Note:** Different chain **names** alone (e.g. `A` vs `Axp`) do **not** fail if content alignment succeeds; see **Successful check** for `content_aligned` / `chain_pairing` in the log.
 
 ---
 
@@ -110,6 +117,8 @@ These are the values of the **`rule`** field in each object inside **`failures`*
 
 If **`failures`** is empty and **`ok`** is **true**, macromolecule categories were allowed by safeguards. The log may still list **`checked_asym_ids`** and **`mode`** for traceability.
 
+When alignment used content matching, the JSON also includes **`content_aligned`: true** and **`chain_pairing`** (reference `label_asym_id` → target `label_asym_id`).
+
 ---
 
 ## Disabling safeguards
@@ -121,7 +130,7 @@ If **`failures`** is empty and **`ok`** is **true**, macromolecule categories we
 ## Where to look in output
 
 - **CLI / `--log`:** section **MACROMOLECULE SAFEGUARDS** in the `.log` file (includes JSON-style details).
-- **Python:** `import_metadata(...)` returns **`ImportMetadataOutcome`**; inspect **`safeguard_result`** (dataclass-like object with **`ok`**, **`mode`**, **`failures`**, **`checked_asym_ids`**) and **`to_json_fragment()`** if needed.
+- **Python:** `import_metadata(...)` returns **`ImportMetadataOutcome`**; inspect **`safeguard_result`** (dataclass-like object with **`ok`**, **`mode`**, **`failures`**, **`checked_asym_ids`**, and when applicable **`content_aligned`**, **`chain_pairing`**) and **`to_json_fragment()`** if needed.
 
 ---
 
