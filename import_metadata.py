@@ -365,6 +365,32 @@ def overwritten_tags_from_target(target_block, import_tags):
     return overwritten_categories, overwritten_items
 
 
+def filter_metadata_block_by_categories(block, *, include=None, exclude=None):
+    """Return a new block with only items whose category is in include and/or not in exclude."""
+    include_set = set(include) if include is not None else None
+    exclude_set = set(exclude) if exclude is not None else None
+    out = gemmi.cif.Block(block.name)
+
+    def item_categories(item):
+        if item.pair is not None:
+            return {get_category_from_item(item.pair[0])}
+        if item.loop is not None:
+            return {get_category_from_item(tag) for tag in item.loop.tags}
+        return set()
+
+    for item in block:
+        cats = item_categories(item)
+        if include_set is not None and not (cats & include_set):
+            continue
+        if exclude_set is not None and (cats & exclude_set):
+            continue
+        if item.pair is not None:
+            out.set_pair(item.pair[0], item.pair[1])
+        elif item.loop is not None:
+            out.add_item(item)
+    return out
+
+
 def merge_metadata_to_file(
     metadata_block,
     merge_to_file,
@@ -401,14 +427,49 @@ def merge_metadata_to_file(
         target_block = target_doc[0]
 
         if overwrite_macromolecule_categories and not overwrite_existing:
-            overwritten_categories, overwritten_items = overwritten_categories_from_target(
+            non_macromolecule_block = filter_metadata_block_by_categories(
+                metadata_block, exclude=MACROMOLECULE_CATEGORIES
+            )
+            macromolecule_only_block = filter_metadata_block_by_categories(
+                metadata_block, include=MACROMOLECULE_CATEGORIES
+            )
+            merge_target = merge_to_file
+            skipped_categories = set()
+            skipped_items = set()
+            overwritten_categories = set()
+            overwritten_items = set()
+
+            if block_has_items(non_macromolecule_block):
+                splice_result = merge_metadata_to_file(
+                    non_macromolecule_block,
+                    merge_to_file,
+                    output_file,
+                    overwrite_existing=False,
+                    overwrite_macromolecule_categories=False,
+                )
+                if not splice_result.success:
+                    return splice_result
+                skipped_categories |= splice_result.skipped_categories
+                skipped_items |= splice_result.skipped_items
+                overwritten_categories |= splice_result.overwritten_categories
+                overwritten_items |= splice_result.overwritten_items
+                merge_target = output_file
+
+            target_doc = gemmi.cif.read(merge_target)
+            if len(target_doc) == 0:
+                print("Error: No data blocks found in merge target file")
+                return MergeMetadataResult(False, set(), set(), set(), set())
+            target_block = target_doc[0]
+            mac_overwritten_categories, mac_overwritten_items = overwritten_categories_from_target(
                 target_block, MACROMOLECULE_CATEGORIES
             )
+            overwritten_categories |= mac_overwritten_categories
+            overwritten_items |= mac_overwritten_items
             stripped = remove_categories_from_target(target_block, MACROMOLECULE_CATEGORIES)
             merged_block = gemmi.cif.Block(target_block.name)
             for item in stripped:
                 merged_block.add_item(item)
-            for item in metadata_block:
+            for item in macromolecule_only_block:
                 merged_block.add_item(item)
             out_doc = gemmi.cif.Document()
             out_doc.add_copied_block(merged_block)
@@ -419,7 +480,13 @@ def merge_metadata_to_file(
                 f"Successfully merged metadata into: {output_file} "
                 f"(overwrite macromolecule categories only)"
             )
-            return MergeMetadataResult(True, set(), set(), overwritten_categories, overwritten_items)
+            return MergeMetadataResult(
+                True,
+                skipped_categories,
+                skipped_items,
+                overwritten_categories,
+                overwritten_items,
+            )
 
         if overwrite_existing:
             import_tags = collect_tags_from_metadata_block(metadata_block)
@@ -474,10 +541,13 @@ def merge_metadata_to_file(
             elif item.loop is not None:
                 loop = item.loop
                 loop_tags = [tag for tag in loop.tags]
-                if any(tag in existing_items for tag in loop_tags):
-                    # Target already has this loop (fully or partially). Do not splice the
-                    # whole loop when only some columns differ — that duplicates the category
-                    # (e.g. software) and breaks pdbx format check / cif2cif.
+                loop_categories = {get_category_from_item(tag) for tag in loop_tags}
+                if loop_categories & existing_categories or any(
+                    tag in existing_items for tag in loop_tags
+                ):
+                    # Target already has this category (or overlapping columns). Do not splice
+                    # the whole loop when only some columns differ — that duplicates the
+                    # category (e.g. software) and breaks pdbx format check / cif2cif.
                     for tag in loop_tags:
                         already_present_items.add(tag)
                         already_present_categories.add(get_category_from_item(tag))
