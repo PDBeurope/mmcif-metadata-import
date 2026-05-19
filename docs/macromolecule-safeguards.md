@@ -38,7 +38,7 @@ They apply only to the macromolecule category set from `MACROMOLECULES.csv`; the
 
 3. **ID remapping on merge (content alignment only)**  
    When chain names differ but content alignment succeeds, the importer **rewrites** macromolecule metadata before merge and **replaces** any existing macromolecule categories in the merge target (even without `--overwrite-existing`). Other requested categories still use the default skip-if-present merge behaviour.
-   - **`entity_id`** fields point at the target’s polymer **`entity.id`** values (e.g. reference entity `1` shared by chains `A`/`B` may expand to target entities `A` and `B`).
+   - **`entity_id`** fields point at the target’s polymer **`entity.id`** values (e.g. reference entity `1` shared by chains `A`/`B` may expand to target entities `A` and `B`). This applies to **`loop_`** and **frame** macromolecule categories (e.g. archive-style **`_entity_src_gen`**); when one reference row maps to several target polymers, the importer may emit a **`loop_`** with one row per target entity and duplicated field values.
    - Reference **`_entity`** polymer rows that would conflict with the target are omitted (the target’s polymer entity rows are kept).
    - After merge, **`_struct_asym`** polymer rows are reconciled so **`_struct_asym.id`** matches **`_atom_site.label_asym_id`** and **`_struct_asym.entity_id`** matches **`_atom_site.label_entity_id`** for each polymer chain.
 

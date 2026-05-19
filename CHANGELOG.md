@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Released]
 
+## [0.5.4] - 2026-05-19
+
+### Fixed
+- **Frame-format** macromolecule categories (e.g. archive-style **`_entity_src_gen`**, **`_entity_poly`**) now participate in polymer **`entity_id`** remapping when content-aligned chain pairing maps a reference entity to one or more target entities (e.g. reference entity **`1`** → target **`A`** and **`B`**). Single-target remaps stay as frames; multi-target remaps emit a **`loop_`** with duplicated rows so **`entity_id`** matches target **`_entity.id`**.
+- Loop construction for remapped macromolecule tables uses gemmi **`init_mmcif_loop`** so values with commas (e.g. **`pdbx_strand_id` `A,B`**) or semicolon multiline sequences round-trip correctly.
+
+### Added
+- Unit tests for frame **`_entity_src_gen`** and **`_entity_poly`** remapping in **`tests/test_polymer_safeguards.py`**.
+
 ## [0.5.3] - 2026-05-19
 
 ### Fixed
