@@ -257,6 +257,116 @@ _entity.pdbx_description
         self.assertEqual(by_id.get("B"), "EAL-protein")
         self.assertEqual(by_id.get("2"), "GLYCEROL")
 
+    def test_remap_frame_entity_src_gen_one_to_two_target_entities(self):
+        ref_cif = """data_test
+loop_
+_entity.id
+_entity.type
+1 polymer
+loop_
+_struct_asym.id
+_struct_asym.entity_id
+A 1
+B 1
+loop_
+_atom_site.group_PDB
+_atom_site.label_asym_id
+_atom_site.label_seq_id
+_atom_site.label_comp_id
+_atom_site.label_entity_id
+ATOM A 1 ALA A
+ATOM B 1 SER B
+"""
+        tgt_cif = """data_test
+loop_
+_entity.id
+_entity.type
+A polymer
+B polymer
+loop_
+_atom_site.group_PDB
+_atom_site.label_asym_id
+_atom_site.label_seq_id
+_atom_site.label_comp_id
+_atom_site.label_entity_id
+ATOM Axp 1 ALA A
+ATOM Bxp 1 SER B
+"""
+        ref = _read(ref_cif)
+        tgt = _read(tgt_cif)
+        meta = _read("""data_test
+_entity_src_gen.entity_id 1
+_entity_src_gen.pdbx_gene_src_gene PA0861
+_entity_src_gen.pdbx_gene_src_scientific_name "Pseudomonas aeruginosa PAO1"
+_entity_src_gen.pdbx_gene_src_ncbi_taxonomy_id 208964
+_entity_src_gen.pdbx_host_org_scientific_name "Escherichia coli BL21(DE3)"
+_entity_src_gen.pdbx_host_org_ncbi_taxonomy_id 469008
+_entity_src_gen.plasmid_name pET28a
+""")
+        pairing = {"A": "Axp", "B": "Bxp"}
+        out = remap_macromolecule_metadata_for_target(meta, ref, tgt, pairing)
+        ids = _entity_src_gen_ids_from_block(out)
+        self.assertEqual(ids, ["A", "B"])
+        from polymer_safeguards import _get_loop, _loop_as_table, _find_column, _cif_string_raw
+
+        loop = _get_loop(out, "_entity_src_gen.entity_id")
+        self.assertIsNotNone(loop)
+        tags, rows = _loop_as_table(loop)
+        ig = _find_column(tags, "_entity_src_gen.pdbx_gene_src_gene")
+        self.assertEqual(_cif_string_raw(rows[0][ig]), "PA0861")
+        self.assertEqual(_cif_string_raw(rows[1][ig]), "PA0861")
+
+    def test_remap_frame_entity_poly_to_target_entity_ids(self):
+        ref_cif = """data_test
+loop_
+_entity.id
+_entity.type
+1 polymer
+loop_
+_struct_asym.id
+_struct_asym.entity_id
+A 1
+B 1
+loop_
+_atom_site.group_PDB
+_atom_site.label_asym_id
+_atom_site.label_seq_id
+_atom_site.label_comp_id
+_atom_site.label_entity_id
+ATOM A 1 ALA A
+ATOM A 2 GLY A
+ATOM B 1 SER B
+ATOM B 2 THR B
+"""
+        tgt_cif = """data_test
+loop_
+_entity.id
+_entity.type
+A polymer
+B polymer
+loop_
+_atom_site.group_PDB
+_atom_site.label_asym_id
+_atom_site.label_seq_id
+_atom_site.label_comp_id
+_atom_site.label_entity_id
+ATOM Axp 1 ALA A
+ATOM Axp 2 GLY A
+ATOM Bxp 1 SER B
+ATOM Bxp 2 THR B
+"""
+        ref = _read(ref_cif)
+        tgt = _read(tgt_cif)
+        meta = _read("""data_test
+_entity_poly.entity_id 1
+_entity_poly.type polypeptide(L)
+_entity_poly.pdbx_strand_id A,B
+_entity_poly.pdbx_seq_one_letter_code AG
+""")
+        pairing = {"A": "Axp", "B": "Bxp"}
+        out = remap_macromolecule_metadata_for_target(meta, ref, tgt, pairing)
+        self.assertEqual(_entity_poly_ids_from_block(out), ["A", "B"])
+
     def test_remap_entity_poly_to_target_entity_ids(self):
         ref_cif = """data_test
 loop_
@@ -349,6 +459,22 @@ def _entity_poly_ids_from_block(block) -> List[str]:
     if ie is None:
         return []
     return sorted({_cif_string_raw(row[ie]) for row in rows})
+
+
+def _entity_src_gen_ids_from_block(block) -> List[str]:
+    from polymer_safeguards import _get_loop, _loop_as_table, _find_column, _cif_string_raw
+
+    loop = _get_loop(block, "_entity_src_gen.entity_id")
+    if loop:
+        tags, rows = _loop_as_table(loop)
+        ie = _find_column(tags, "_entity_src_gen.entity_id")
+        if ie is None:
+            return []
+        return [_cif_string_raw(row[ie]) for row in rows]
+    for item in block:
+        if item.pair is not None and item.pair[0] == "_entity_src_gen.entity_id":
+            return [_cif_string_raw(item.pair[1])]
+    return []
 
 
 if __name__ == "__main__":

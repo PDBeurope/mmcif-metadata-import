@@ -458,14 +458,19 @@ def _loop_item_from_table(tags: List[str], rows: List[List[str]]):
     if not tags:
         raise ValueError("empty loop tags")
     w = len(tags)
-    lines = ["data_", "loop_"]
-    lines.extend(tags)
     for row in rows:
         if len(row) != w:
             raise ValueError(f"row width {len(row)} != {w}")
-        lines.append(" ".join(row))
-    doc = gemmi.cif.read_string("\n".join(lines))
-    for item in doc[0]:
+    category = get_category_from_tag(tags[0])
+    short_tags = [
+        tag.split(".", 1)[1] if tag.startswith("_") and "." in tag else tag
+        for tag in tags
+    ]
+    tmp = gemmi.cif.Block("_loop_build")
+    loop = tmp.init_mmcif_loop(category, short_tags)
+    for row in rows:
+        loop.add_row(row)
+    for item in tmp:
         if item.loop is not None:
             return item
     raise ValueError("failed to build loop from table")
@@ -502,6 +507,44 @@ def _expand_rows_for_entity_id(
             new_row[ci] = te
         out.append(new_row)
     return out
+
+
+def _frame_pairs_have_entity_id(pairs: List[Tuple[str, str]]) -> bool:
+    return any(_is_entity_id_tag(tag) for tag, _ in pairs)
+
+
+def _emit_remapped_frame_pairs(
+    out: gemmi.cif.Block,
+    pairs: List[Tuple[str, str]],
+    ref_entity_to_targets: Dict[str, List[str]],
+) -> None:
+    """Write frame pairs to ``out``, remapping entity_id and expanding to a loop when needed."""
+    tags = [tag for tag, _ in pairs]
+    row = [val for _, val in pairs]
+    new_rows = _expand_rows_for_entity_id(row, tags, ref_entity_to_targets)
+    if len(new_rows) == 1:
+        for tag, val in zip(tags, new_rows[0]):
+            out.set_pair(tag, val)
+        return
+    out.add_item(_loop_item_from_table(tags, new_rows))
+
+
+def _flush_frame_pair_buffer(
+    out: gemmi.cif.Block,
+    pairs: List[Tuple[str, str]],
+    category: Optional[str],
+    ref_entity_to_targets: Dict[str, List[str]],
+) -> None:
+    if not pairs:
+        return
+    if (
+        category in MACROMOLECULE_CATEGORIES
+        and _frame_pairs_have_entity_id(pairs)
+    ):
+        _emit_remapped_frame_pairs(out, pairs, ref_entity_to_targets)
+        return
+    for tag, val in pairs:
+        out.set_pair(tag, val)
 
 
 def _remap_loop_rows(
@@ -557,10 +600,27 @@ def remap_macromolecule_metadata_for_target(
     )
 
     out = gemmi.cif.Block(metadata_block.name)
+    frame_pairs: List[Tuple[str, str]] = []
+    frame_category: Optional[str] = None
     for item in metadata_block:
         if item.pair is not None:
-            out.set_pair(item.pair[0], item.pair[1])
-        elif item.loop is not None and item.loop.tags:
+            cat = get_category_from_tag(item.pair[0])
+            if frame_category is not None and cat != frame_category:
+                _flush_frame_pair_buffer(
+                    out, frame_pairs, frame_category, ref_entity_to_targets
+                )
+                frame_pairs = []
+                frame_category = None
+            if frame_category is None:
+                frame_category = cat
+            frame_pairs.append((item.pair[0], item.pair[1]))
+            continue
+        _flush_frame_pair_buffer(
+            out, frame_pairs, frame_category, ref_entity_to_targets
+        )
+        frame_pairs = []
+        frame_category = None
+        if item.loop is not None and item.loop.tags:
             cat = get_category_from_tag(item.loop.tags[0])
             if cat not in MACROMOLECULE_CATEGORIES:
                 out.add_item(item)
@@ -578,6 +638,9 @@ def remap_macromolecule_metadata_for_target(
                 out.add_item(_loop_item_from_table(tags, new_rows))
         else:
             out.add_item(item)
+    _flush_frame_pair_buffer(
+        out, frame_pairs, frame_category, ref_entity_to_targets
+    )
     return out
 
 
