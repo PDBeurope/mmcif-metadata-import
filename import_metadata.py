@@ -25,6 +25,7 @@ from polymer_safeguards import (
     block_has_items,
     SafeguardResult,
     needs_content_id_remap,
+    needs_polymer_metadata_id_remap,
     remap_macromolecule_metadata_for_target,
     reconcile_polymer_struct_asym_in_mmcif_file,
 )
@@ -541,12 +542,9 @@ def merge_metadata_to_file(
             elif item.loop is not None:
                 loop = item.loop
                 loop_tags = [tag for tag in loop.tags]
-                loop_categories = {get_category_from_item(tag) for tag in loop_tags}
-                if loop_categories & existing_categories or any(
-                    tag in existing_items for tag in loop_tags
-                ):
-                    # Target already has this category (or overlapping columns). Do not splice
-                    # the whole loop when only some columns differ — that duplicates the
+                if any(tag in existing_items for tag in loop_tags):
+                    # Target already has this loop (fully or partially). Do not splice the
+                    # whole loop when only some columns differ — that duplicates the
                     # category (e.g. software) and breaks pdbx format check / cif2cif.
                     for tag in loop_tags:
                         already_present_items.add(tag)
@@ -960,11 +958,13 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
         merge_to_file
         and safeguard_result
         and safeguard_result.content_aligned
-        and needs_content_id_remap(safeguard_result.chain_pairing)
+        and safeguard_result.chain_pairing
     ):
         try:
             tgt_doc = gemmi.cif.read(merge_to_file)
-            if tgt_doc:
+            if tgt_doc and needs_polymer_metadata_id_remap(
+                safeguard_result.chain_pairing, block, tgt_doc[0]
+            ):
                 new_block = remap_macromolecule_metadata_for_target(
                     new_block,
                     block,
@@ -1010,11 +1010,22 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
     overwritten_categories = set()
     overwritten_items = set()
     if merge_to_file:
-        force_macromolecule_overwrite = bool(
+        force_macromolecule_overwrite = False
+        if (
             safeguard_result
             and safeguard_result.content_aligned
-            and needs_content_id_remap(safeguard_result.chain_pairing)
-        )
+            and merge_to_file
+        ):
+            try:
+                _tgt_doc = gemmi.cif.read(merge_to_file)
+                if _tgt_doc:
+                    force_macromolecule_overwrite = needs_polymer_metadata_id_remap(
+                        safeguard_result.chain_pairing, block, _tgt_doc[0]
+                    )
+            except Exception:
+                force_macromolecule_overwrite = needs_content_id_remap(
+                    safeguard_result.chain_pairing
+                )
         merge_result = merge_metadata_to_file(
             new_block,
             merge_to_file,
@@ -1036,7 +1047,7 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
             result
             and safeguard_result
             and safeguard_result.content_aligned
-            and needs_content_id_remap(safeguard_result.chain_pairing)
+            and force_macromolecule_overwrite
         ):
             try:
                 reconcile_polymer_struct_asym_in_mmcif_file(merge_output_file)

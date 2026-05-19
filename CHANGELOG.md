@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Released]
 
+## [0.5.3] - 2026-05-19
+
+### Fixed
+- Polymer **`loop_` `_entity`** rows are preserved and remapped to target **`entity.id`** values with reference **`pdbx_description`**, so content-aligned merges no longer drop polymer names when upload entity ids differ from the reference (e.g. letter ids vs numeric).
+- **`needs_polymer_metadata_id_remap()`** triggers entity/asym remapping when chains align by content but entity ids still need alignment, even if **`label_asym_id`** sets already match.
+- Macromolecule merge uses **two-phase** replacement (non-macromolecule category splice, then gemmi macromolecule overwrite) to avoid duplicating categories such as **`_software`**.
+- Reference **`loop_`** blocks are skipped when **any** tag from the loop already exists in the target, avoiding partial-loop splices.
+
+### Added
+- Unit tests for polymer **`_entity`** / **`_entity_poly`** remapping in **`tests/test_polymer_safeguards.py`**.
+
 ## [0.5.2] - 2026-05-15
 
 ### Changed

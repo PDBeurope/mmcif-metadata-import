@@ -16,5 +16,9 @@ dist/
 .pytest_cache/
 .mypy_cache/
 
-# Developement
-dev
+# Development notes and scratch (may contain local paths)
+dev/
+
+# Private development: QA scripts, fixtures, batch output, porting notes (never commit)
+local/
+qa-output/

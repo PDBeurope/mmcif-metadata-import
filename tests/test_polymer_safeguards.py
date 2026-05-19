@@ -197,6 +197,66 @@ ATOM X 2 ALA
         self.assertEqual(pair_polymer_chains_by_content(ref, tgt), {"A": "Axp", "B": "Bxp"})
         self.assertIsNone(pair_polymer_chains_by_content(ref, {"Axp": (2, "AA")}))
 
+    def test_remap_entity_loop_keeps_polymer_description(self):
+        ref_cif = """data_test
+loop_
+_entity.id
+_entity.type
+_entity.pdbx_description
+1 polymer EAL-protein
+2 non-polymer GLYCEROL
+loop_
+_struct_asym.id
+_struct_asym.entity_id
+A 1
+B 1
+loop_
+_atom_site.group_PDB
+_atom_site.label_asym_id
+_atom_site.label_seq_id
+_atom_site.label_comp_id
+_atom_site.label_entity_id
+ATOM A 1 ALA A
+ATOM B 1 SER B
+"""
+        tgt_cif = """data_test
+loop_
+_entity.id
+_entity.type
+A polymer
+B polymer
+loop_
+_atom_site.group_PDB
+_atom_site.label_asym_id
+_atom_site.label_seq_id
+_atom_site.label_comp_id
+_atom_site.label_entity_id
+ATOM A 1 ALA A
+ATOM B 1 SER B
+"""
+        ref = _read(ref_cif)
+        tgt = _read(tgt_cif)
+        meta = _read("""data_test
+loop_
+_entity.id
+_entity.type
+_entity.pdbx_description
+1 polymer EAL-protein
+2 non-polymer GLYCEROL
+""")
+        out = remap_macromolecule_metadata_for_target(meta, ref, tgt, {"A": "A", "B": "B"})
+        from polymer_safeguards import _get_loop, _loop_as_table, _find_column, _cif_string_raw
+
+        loop = _get_loop(out, "_entity.id")
+        self.assertIsNotNone(loop)
+        tags, rows = _loop_as_table(loop)
+        ie = _find_column(tags, "_entity.id")
+        idesc = _find_column(tags, "_entity.pdbx_description")
+        by_id = {_cif_string_raw(row[ie]): _cif_string_raw(row[idesc]) for row in rows}
+        self.assertEqual(by_id.get("A"), "EAL-protein")
+        self.assertEqual(by_id.get("B"), "EAL-protein")
+        self.assertEqual(by_id.get("2"), "GLYCEROL")
+
     def test_remap_entity_poly_to_target_entity_ids(self):
         ref_cif = """data_test
 loop_

@@ -426,6 +426,23 @@ def needs_content_id_remap(chain_pairing: Dict[str, str]) -> bool:
     return any(ref_a != tgt_a for ref_a, tgt_a in chain_pairing.items())
 
 
+def needs_polymer_metadata_id_remap(
+    chain_pairing: Dict[str, str],
+    reference_block: gemmi.cif.Block,
+    target_block: gemmi.cif.Block,
+) -> bool:
+    """True when polymer entity/asym ids in metadata must be rewritten for the merge target."""
+    if needs_content_id_remap(chain_pairing):
+        return True
+    ref_entity_to_targets, _ = build_polymer_entity_remapping(
+        chain_pairing, reference_block, target_block
+    )
+    for ref_eid, target_eids in ref_entity_to_targets.items():
+        if len(target_eids) != 1 or target_eids[0] != ref_eid:
+            return True
+    return False
+
+
 def _is_entity_id_tag(tag: str) -> bool:
     return tag.endswith(".entity_id") or tag == "_entity.id"
 
@@ -497,14 +514,18 @@ def _remap_loop_rows(
 ) -> List[List[str]]:
     if category == "_entity":
         ie = _find_column(tags, "_entity.id")
-        out: List[List[str]] = []
+        out_rows: List[List[str]] = []
         for row in rows:
+            new_row = list(row)
             if ie is not None:
                 eid = _cif_string_raw(row[ie])
                 if eid in ref_polymer_entities:
+                    out_rows.extend(
+                        _expand_rows_for_entity_id(new_row, tags, ref_entity_to_targets)
+                    )
                     continue
-            out.append(row)
-        return out
+            out_rows.append(new_row)
+        return out_rows
 
     out_rows: List[List[str]] = []
     asym_cols = [i for i, t in enumerate(tags) if _is_label_asym_tag(t)]
@@ -528,7 +549,7 @@ def remap_macromolecule_metadata_for_target(
 
     Used after content-based chain pairing (reference asym names differ from target).
     """
-    if not needs_content_id_remap(chain_pairing):
+    if not needs_polymer_metadata_id_remap(chain_pairing, reference_block, target_block):
         return metadata_block
 
     ref_entity_to_targets, ref_polymer_entities = build_polymer_entity_remapping(
