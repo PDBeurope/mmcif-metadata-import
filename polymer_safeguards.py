@@ -13,7 +13,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import gemmi
 
-# Must match specs/MACROMOLECULES.csv (category column, should_import Y).
+# Must match specs/MACROMOLECULES.csv and specs/MACROMOLECULES_EM.csv (category column, should_import Y).
 MACROMOLECULE_CATEGORIES: Set[str] = frozenset(
     {
         "_entity",
@@ -26,6 +26,13 @@ MACROMOLECULE_CATEGORIES: Set[str] = frozenset(
         "_struct_ref",
         "_struct_ref_seq",
         "_struct_ref_seq_dif",
+        "_em_entity_assembly",
+        "_em_entity_assembly_naturalsource",
+        "_em_entity_assembly_molwt",
+        "_em_entity_assembly_recombinant",
+        "_em_virus_entity",
+        "_em_virus_natural_host",
+        "_em_virus_shell",
     }
 )
 

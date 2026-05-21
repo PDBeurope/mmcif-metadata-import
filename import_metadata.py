@@ -266,6 +266,50 @@ def resolve_authors_spec_path(profile_mmCIF_path: str, spec_dir: Optional[Path] 
     return chosen if chosen.exists() else fallback
 
 
+def profile_indicates_em_method(profile_mmCIF_path: str, spec_dir: Optional[Path] = None) -> bool:
+    """True when the profile mmCIF is electron microscopy (``detect_method_from_input``)."""
+    try:
+        profile_doc = gemmi.cif.read(profile_mmCIF_path)
+    except Exception:
+        return False
+    if len(profile_doc) == 0:
+        return False
+    try:
+        method = detect_method_from_input(profile_doc)
+    except ValueError:
+        return False
+    return method in EM_METHOD_CODES
+
+
+def resolve_macromolecules_em_supplement_spec_path(
+    profile_mmCIF_path: str,
+    spec_dir: Optional[Path] = None,
+) -> Optional[Path]:
+    """Return specs/MACROMOLECULES_EM.csv when the profile deposition is EM, else None."""
+    if not profile_indicates_em_method(profile_mmCIF_path, spec_dir):
+        return None
+    chosen = (Path(spec_dir) if spec_dir is not None else PROJECT_ROOT / "specs") / "MACROMOLECULES_EM.csv"
+    return chosen if chosen.exists() else None
+
+
+def _resolve_macromolecules_specs_for_import(
+    spec_files,
+    input_file,
+    merge_to_file,
+):
+    """Append specs/MACROMOLECULES_EM.csv when MACROMOLECULES.csv is requested and the profile is EM."""
+    has_base = any(Path(str(s)).name.upper() == "MACROMOLECULES.CSV" for s in spec_files)
+    if not has_base:
+        return spec_files
+    if any(Path(str(s)).name.upper() == "MACROMOLECULES_EM.CSV" for s in spec_files):
+        return spec_files
+    profile_path = merge_to_file if merge_to_file else input_file
+    supplement = resolve_macromolecules_em_supplement_spec_path(profile_path, PROJECT_ROOT / "specs")
+    if supplement is None:
+        return spec_files
+    return list(spec_files) + [str(supplement)]
+
+
 def get_spec_file_path(from_method, to_method):
     """
     Get the path to the specification CSV file based on FROM and TO methods.
@@ -813,7 +857,8 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
     # Handle both single file and multiple files
     if isinstance(spec_files, str):
         spec_files = [spec_files]
-    
+    spec_files = _resolve_macromolecules_specs_for_import(spec_files, input_file, merge_to_file)
+
     # Parse specification(s)
     if len(spec_files) == 1:
         included_categories, included_items, excluded_categories, excluded_items = parse_specification_file(spec_files[0])
@@ -1322,6 +1367,17 @@ def main():
                 sys.exit(1)
             spec_files.append(str(spec_path))
             print(f"Also using {description} specification file: {filename}")
+
+    if args.macromolecules:
+        profile_path = args.merge_to_file if args.merge_to_file else args.input_file
+        em_mac = resolve_macromolecules_em_supplement_spec_path(profile_path, PROJECT_ROOT / "specs")
+        if em_mac is not None:
+            spec_files.append(str(em_mac))
+            try:
+                rel = em_mac.relative_to(PROJECT_ROOT)
+            except ValueError:
+                rel = em_mac
+            print(f"Also using macromolecules EM sample specification file: {rel}")
 
     if args.authors:
         profile_path = args.merge_to_file if args.merge_to_file else args.input_file
