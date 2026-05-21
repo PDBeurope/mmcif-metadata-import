@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Released]
 
+## [Unreleased]
+
+## [0.5.5] - 2026-05-21
+
+### Changed
+- EM sample / entity assembly categories moved from `specs/EM.csv` to method-dependent `specs/MACROMOLECULES_EM.csv`, appended when `--macromolecules` is selected and the profile deposition is electron microscopy (same profile rules as conditional author specs).
+- Added EM macromolecule categories: `em_entity_assembly_molwt`, `em_entity_assembly_recombinant`, `em_virus_entity`, `em_virus_natural_host`, `em_virus_shell` (with existing `em_entity_assembly` and `em_entity_assembly_naturalsource`).
+- `MACROMOLECULE_CATEGORIES` in `polymer_safeguards.py` extended to include EM sample categories so selective macromolecule overwrite and merge remapping treat them with the rest of the macromolecule bundle.
+
+### Added
+- `profile_indicates_em_method()`, `resolve_macromolecules_em_supplement_spec_path()`, and `_resolve_macromolecules_specs_for_import()` in `import_metadata.py`.
+
 ## [0.5.4] - 2026-05-19
 
 ### Fixed

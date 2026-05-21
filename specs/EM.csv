@@ -24,8 +24,6 @@ _em_admin,,N,category
 _em_buffer,,Y,category
 _em_ctf_correction,,Y,category
 _em_depui,,N,category
-_em_entity_assembly_naturalsource,,Y,category
-_em_entity_assembly,,Y,category
 _em_euler_angle_assignment,,Y,category
 _em_experiment,aggregation_state,Y,item
 _em_experiment,entity_assembly_id,Y,item
