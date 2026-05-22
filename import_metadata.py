@@ -10,6 +10,7 @@ Author: Deborah Harrus, Protein Data Bank in Europe (PDBe)
 import sys
 import os
 import re
+import json
 import argparse
 import csv
 from pathlib import Path
@@ -230,6 +231,41 @@ def block_has_atom_site(block: gemmi.cif.Block) -> bool:
         if any(tag.startswith("_atom_site.") for tag in item.loop.tags):
             return True
     return False
+
+
+def _detect_method_from_mmcif_path(mmcif_path: str) -> Optional[str]:
+    """Return detect_method_from_input() code, or None if the file cannot be classified."""
+    try:
+        doc = gemmi.cif.read(mmcif_path)
+    except Exception:
+        return None
+    if len(doc) == 0:
+        return None
+    try:
+        return detect_method_from_input(doc)
+    except ValueError:
+        return None
+
+
+def target_is_em_map_only(merge_path: str) -> bool:
+    """True when profile mmCIF is EM_MAP_ONLY (detect_method_from_input)."""
+    return _detect_method_from_mmcif_path(merge_path) == "EM_MAP_ONLY"
+
+
+def reference_is_em_map_only(input_path: str) -> bool:
+    """True when reference mmCIF is EM_MAP_ONLY."""
+    return _detect_method_from_mmcif_path(input_path) == "EM_MAP_ONLY"
+
+
+def merge_target_has_atom_site(merge_path: str) -> bool:
+    """True when merge target block has _atom_site loop (any method)."""
+    try:
+        doc = gemmi.cif.read(merge_path)
+    except Exception:
+        return False
+    if len(doc) == 0:
+        return False
+    return block_has_atom_site(doc[0])
 
 
 def resolve_authors_spec_path(profile_mmCIF_path: str, spec_dir: Optional[Path] = None) -> Path:
@@ -972,6 +1008,8 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
 
     safeguard_result: Optional[SafeguardResult] = None
     macromolecule_skipped = False
+    macromolecule_blind_copy = False
+    macromolecule_blocked = False
 
     if (
         merge_to_file
@@ -983,18 +1021,74 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
             if len(tgt_doc) == 0:
                 print("Error: merge target has no data blocks")
                 return ImportMetadataOutcome(False, 1, None)
-            safeguard_result = validate_macromolecule_merge(block, tgt_doc[0])
-            if not safeguard_result.ok:
+            tgt_block = tgt_doc[0]
+            ref_method = _detect_method_from_mmcif_path(input_file)
+            tgt_method = _detect_method_from_mmcif_path(merge_to_file)
+
+            if reference_is_em_map_only(input_file) and merge_target_has_atom_site(merge_to_file):
                 new_block = strip_macromolecule_categories(new_block)
-                macromolecule_skipped = True
+                macromolecule_blocked = True
                 imported_categories -= MACROMOLECULE_CATEGORIES
                 imported_items = {
-                    i for i in imported_items if get_category_from_item(i) not in MACROMOLECULE_CATEGORIES
+                    i
+                    for i in imported_items
+                    if get_category_from_item(i) not in MACROMOLECULE_CATEGORIES
                 }
-                print(
-                    "Macromolecule categories were not merged (safeguards). Details:\n",
-                    safeguard_result.to_json_fragment(),
+                safeguard_result = SafeguardResult(
+                    False,
+                    "blocked_map_only_reference_to_model_target",
+                    [],
+                    [],
+                    {},
+                    False,
                 )
+                print(
+                    "Macromolecule import from an EM map-only previous entry is not permitted "
+                    "when the current deposition includes a model (_atom_site)."
+                )
+                print(safeguard_result.to_json_fragment())
+            elif target_is_em_map_only(merge_to_file):
+                macromolecule_blind_copy = True
+                safeguard_result = SafeguardResult(
+                    True,
+                    "blind_copy_em_map_only",
+                    [],
+                    [],
+                    {},
+                    False,
+                )
+                print(
+                    "Macromolecule merge: blind copy for EM map-only target "
+                    "(polymer safeguards skipped; no _atom_site on target)."
+                )
+                print(
+                    json.dumps(
+                        {
+                            "ok": True,
+                            "mode": "blind_copy_em_map_only",
+                            "target_method": tgt_method or "unknown",
+                            "reference_method": ref_method or "unknown",
+                            "failures": [],
+                            "note": "Polymer safeguards skipped: merge target has no _atom_site.",
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                safeguard_result = validate_macromolecule_merge(block, tgt_block)
+                if not safeguard_result.ok:
+                    new_block = strip_macromolecule_categories(new_block)
+                    macromolecule_skipped = True
+                    imported_categories -= MACROMOLECULE_CATEGORIES
+                    imported_items = {
+                        i
+                        for i in imported_items
+                        if get_category_from_item(i) not in MACROMOLECULE_CATEGORIES
+                    }
+                    print(
+                        "Macromolecule categories were not merged (safeguards). Details:\n",
+                        safeguard_result.to_json_fragment(),
+                    )
         except Exception as e:
             print(f"Error during macromolecule safeguard validation: {e}")
             return ImportMetadataOutcome(False, 1, None)
@@ -1004,6 +1098,7 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
         and safeguard_result
         and safeguard_result.content_aligned
         and safeguard_result.chain_pairing
+        and not macromolecule_blind_copy
     ):
         try:
             tgt_doc = gemmi.cif.read(merge_to_file)
@@ -1055,9 +1150,10 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
     overwritten_categories = set()
     overwritten_items = set()
     if merge_to_file:
-        force_macromolecule_overwrite = False
+        force_macromolecule_overwrite = macromolecule_blind_copy
         if (
-            safeguard_result
+            not macromolecule_blind_copy
+            and safeguard_result
             and safeguard_result.content_aligned
             and merge_to_file
         ):
@@ -1079,10 +1175,16 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
             overwrite_macromolecule_categories=force_macromolecule_overwrite,
         )
         if force_macromolecule_overwrite and not overwrite_existing:
-            print(
-                "Note: existing macromolecule categories in the merge target were replaced "
-                "because content-aligned chain remapping was applied."
-            )
+            if macromolecule_blind_copy:
+                print(
+                    "Note: existing macromolecule categories in the merge target were replaced "
+                    "(blind copy for EM map-only target)."
+                )
+            else:
+                print(
+                    "Note: existing macromolecule categories in the merge target were replaced "
+                    "because content-aligned chain remapping was applied."
+                )
         result = merge_result.success
         not_imported_categories = merge_result.skipped_categories
         not_imported_items = merge_result.skipped_items
@@ -1093,6 +1195,7 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
             and safeguard_result
             and safeguard_result.content_aligned
             and force_macromolecule_overwrite
+            and not macromolecule_blind_copy
         ):
             try:
                 reconcile_polymer_struct_asym_in_mmcif_file(merge_output_file)
@@ -1132,10 +1235,20 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
     
     safeguard_log: Optional[str] = None
     if safeguard_result is not None:
-        if macromolecule_skipped:
+        if macromolecule_blocked:
+            safeguard_log = (
+                "Macromolecule categories were not merged: EM map-only reference with "
+                "model target (_atom_site).\n" + safeguard_result.to_json_fragment()
+            )
+        elif macromolecule_skipped:
             safeguard_log = (
                 "Macromolecule categories were omitted because reference/target "
                 "polymer alignment checks failed.\n" + safeguard_result.to_json_fragment()
+            )
+        elif macromolecule_blind_copy:
+            safeguard_log = (
+                "Macromolecule blind copy for EM map-only target.\n"
+                + safeguard_result.to_json_fragment()
             )
         else:
             safeguard_log = "Macromolecule safeguards passed.\n" + safeguard_result.to_json_fragment()
@@ -1180,6 +1293,8 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
         )
 
     if not result:
+        return ImportMetadataOutcome(False, 1, safeguard_result)
+    if macromolecule_blocked:
         return ImportMetadataOutcome(False, 1, safeguard_result)
     if macromolecule_skipped:
         return ImportMetadataOutcome(True, 2, safeguard_result)
@@ -1411,6 +1526,14 @@ def main():
         print("Exit status 2: merge completed but macromolecule categories were skipped (safeguards).")
         sys.exit(2)
     if not outcome.ok:
+        if (
+            outcome.safeguard_result
+            and outcome.safeguard_result.mode == "blocked_map_only_reference_to_model_target"
+        ):
+            print(
+                "Exit status 1: macromolecule import blocked (EM map-only reference, "
+                "target has a model)."
+            )
         sys.exit(1)
 
 

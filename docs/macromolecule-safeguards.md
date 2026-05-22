@@ -24,7 +24,19 @@ The authoritative implementation is [`polymer_safeguards.py`](../polymer_safegua
 
 They apply only to the macromolecule category set from `MACROMOLECULES.csv`; they do not replace normal method validation (`--xray` / `--em` / …).
 
+### EM map-only exceptions
+
+| Reference | Merge target | Macromolecules behaviour |
+|-----------|--------------|---------------------------|
+| **EM map-only** | **EM map-only** | **Blind copy** — safeguards skipped; categories replaced on target (`mode`: `blind_copy_em_map_only`, exit **0**) |
+| **EM map+model** / **model-only** (any ref with coordinates) | **EM map-only** | **Blind copy** on target (same as above) |
+| **EM map-only** | **Any target with `_atom_site`** | **Blocked** — macromolecule categories not merged; exit **1** (`mode`: `blocked_map_only_reference_to_model_target`) |
+| **EM map+model** / **model-only** | **EM map+model** / **model-only** | **Full safeguards** (unchanged) |
+
+Map-only detection uses **`detect_method_from_input`** on the merge target / reference (`EM_MAP_ONLY` = WWPDB + EMDB, no PDB), not “missing `_atom_site`” alone.
+
 ---
+
 
 ## What is being compared?
 
