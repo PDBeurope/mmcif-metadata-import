@@ -6,6 +6,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-05-22
+
+### Added
+- **EM map-only macromolecule blind copy:** when the merge target is **`EM_MAP_ONLY`** (via `detect_method_from_input`), `--macromolecules` skips polymer safeguards and replaces macromolecule categories on the target (no `_atom_site` on target).
+- **Block map-only reference → model target:** when the reference is **`EM_MAP_ONLY`** and the merge target has **`_atom_site`**, macromolecule categories are not merged; CLI exits **1** with mode `blocked_map_only_reference_to_model_target`.
+- Helpers: `target_is_em_map_only()`, `reference_is_em_map_only()`, `merge_target_has_atom_site()`.
+
+### Changed
+- Macromolecule merge on **`EM_MAP_ONLY`** targets no longer requires coordinate alignment; map+model / model-only targets unchanged (full safeguards).
+
+### Documentation
+- [`docs/macromolecule-safeguards.md`](docs/macromolecule-safeguards.md) and README updated for blind copy and map-only-reference block matrix.
+
 ## [0.5.5] - 2026-05-21
 
 ### Changed

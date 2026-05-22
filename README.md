@@ -2,7 +2,7 @@
 
 This tool imports metadata from mmCIF files into new metadata-only files or into existing models. It uses the gemmi library, with automatic method detection and method-specific CSV specification files.
 
-**Current version:** 0.5.5 — see [CHANGELOG](CHANGELOG.md) for release notes.
+**Current version:** 0.5.6 — see [CHANGELOG](CHANGELOG.md) for release notes.
 
 **Protein Data Bank in Europe (PDBe)** · [pdbe.org](https://www.ebi.ac.uk/pdbe)
 
@@ -148,6 +148,8 @@ mmcif-metadata-import reference.cif --macromolecules --merge_to_file target.cif 
 When **`--macromolecules`** and **`--merge_to_file`** are both set, the **reference** file is the positional `input_file` and the **target** is `--merge_to_file`. Before copying categories from `specs/MACROMOLECULES.csv`, the tool checks that polymer chains in the two files **match** (same `label_asym_id` set, or the same polymer content under different chain names; compatible residue counts and sequences per aligned pair). If the check fails, **only** those macromolecule categories are left out of the merge; **other** requested categories (e.g. `--xray` + `--macromolecules`) are still merged, and the CLI exits with **code 2**.
 
 - **Rule codes in logs** (`ALIGN-1-CONTENT-MISMATCH`, etc.) and what each check does: [`docs/macromolecule-safeguards.md`](docs/macromolecule-safeguards.md).
+
+**EM map-only merge target:** when the merge target is detected as **`EM_MAP_ONLY`**, macromolecule categories are copied without coordinate safeguards (`blind_copy_em_map_only`, exit **0**). **EM map-only reference** into a target that has **`_atom_site`** is blocked (exit **1**). See the matrix in [`docs/macromolecule-safeguards.md`](docs/macromolecule-safeguards.md).
 
 ## Method Detection
 
