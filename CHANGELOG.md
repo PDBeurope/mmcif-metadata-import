@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-06-01
+
+### Changed
+- `specs/EM.csv`: do not import `_em_3d_reconstruction.resolution` on based-on-previous EM metadata merge (`should_import` = `N`; `resolution_method` still imported).
+
 ## [0.5.6] - 2026-05-22
 
 ### Added
