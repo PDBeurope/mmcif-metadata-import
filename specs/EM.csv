@@ -17,7 +17,7 @@ _em_3d_reconstruction,num_class_averages,Y,item
 _em_3d_reconstruction,num_particles,N,item
 _em_3d_reconstruction,refinement_type,Y,item
 _em_3d_reconstruction,resolution_method,Y,item
-_em_3d_reconstruction,resolution,Y,item
+_em_3d_reconstruction,resolution,N,item
 _em_3d_reconstruction,software,Y,item
 _em_3d_reconstruction,symmetry_type,Y,item
 _em_admin,,N,category
