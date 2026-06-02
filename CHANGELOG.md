@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.8] - 2026-06-02
+
+### Fixed
+- **Default merge (based-on-previous):** if a category already exists on the merge target, skip **all** incoming items in that category instead of appending only missing tags at EOF (fixes duplicate `_em_*` when upload model already has EM metadata).
+- **Loop vs frame:** a category present as frame pairs or as a loop is treated as present for the whole category (incoming loops are not spliced when only column names differ).
+
 ## [0.5.7] - 2026-06-01
 
 ### Changed
