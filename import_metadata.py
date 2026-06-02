@@ -611,21 +611,25 @@ def merge_metadata_to_file(
             if item.pair is not None:
                 item_name = item.pair[0]
                 category = get_category_from_item(item_name)
-                
-                if item_name in existing_items:
+
+                # Default merge: if the category exists on the target (pairs or loop),
+                # skip all incoming items in that category — do not append missing pairs.
+                if category in existing_categories or item_name in existing_items:
                     already_present_items.add(item_name)
                     already_present_categories.add(category)
-                    continue  # Skip this item
-                else:
-                    filtered_metadata_block.set_pair(item.pair[0], item.pair[1])
-                    
+                    continue
+
+                filtered_metadata_block.set_pair(item.pair[0], item.pair[1])
+
             elif item.loop is not None:
                 loop = item.loop
                 loop_tags = [tag for tag in loop.tags]
-                if any(tag in existing_items for tag in loop_tags):
-                    # Target already has this loop (fully or partially). Do not splice the
-                    # whole loop when only some columns differ — that duplicates the
-                    # category (e.g. software) and breaks pdbx format check / cif2cif.
+                loop_category = get_category_from_item(loop_tags[0])
+                if loop_category in existing_categories or any(
+                    tag in existing_items for tag in loop_tags
+                ):
+                    # Category present in any form (loop or frame pairs), or loop tags
+                    # overlap — skip the whole loop (no partial column splice).
                     for tag in loop_tags:
                         already_present_items.add(tag)
                         already_present_categories.add(get_category_from_item(tag))

@@ -2,7 +2,7 @@
 
 This tool imports metadata from mmCIF files into new metadata-only files or into existing models. It uses the gemmi library, with automatic method detection and method-specific CSV specification files.
 
-**Current version:** 0.5.7 — see [CHANGELOG](CHANGELOG.md) for release notes.
+**Current version:** 0.5.8 — see [CHANGELOG](CHANGELOG.md) for release notes.
 
 **Protein Data Bank in Europe (PDBe)** · [pdbe.org](https://www.ebi.ac.uk/pdbe)
 
