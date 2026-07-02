@@ -14,7 +14,7 @@ import json
 import argparse
 import csv
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import List, NamedTuple, Optional
 
 import gemmi
 
@@ -221,6 +221,128 @@ def detect_method_from_input(doc):
 
 # Subset of detect_method_from_input() return values that denote electron microscopy.
 EM_METHOD_CODES = frozenset({"EM_MAP_MODEL", "EM_MAP_ONLY", "EM_MODEL_ONLY"})
+
+# PDBx deposition vocabulary for _em_experiment.reconstruction_method
+EM_RECONSTRUCTION_METHOD_VOCAB = frozenset({
+    "CRYSTALLOGRAPHY",
+    "HELICAL",
+    "SINGLE PARTICLE",
+    "SUBTOMOGRAM AVERAGING",
+    "TOMOGRAPHY",
+})
+
+
+def normalize_em_reconstruction_method(value: Optional[str]) -> Optional[str]:
+    """Normalize a reconstruction_method value to PDBx deposition vocabulary, or None."""
+    if value is None:
+        return None
+    cleaned = value.strip().strip('"').strip("'")
+    if not cleaned or cleaned in ("?", "."):
+        return None
+    normalized = " ".join(cleaned.upper().split())
+    if normalized in EM_RECONSTRUCTION_METHOD_VOCAB:
+        return normalized
+    return None
+
+
+def detect_em_reconstruction_method_from_block(block: gemmi.cif.Block) -> Optional[str]:
+    """Read ``_em_experiment.reconstruction_method`` from a mmCIF block."""
+    for item in block:
+        if item.pair is not None and item.pair[0] == "_em_experiment.reconstruction_method":
+            return normalize_em_reconstruction_method(item.pair[1])
+    return None
+
+
+def detect_em_reconstruction_method_from_mmcif_path(mmcif_path: str) -> Optional[str]:
+    """Return normalized ``_em_experiment.reconstruction_method`` from a mmCIF file, or None."""
+    try:
+        doc = gemmi.cif.read(mmcif_path)
+    except Exception:
+        return None
+    if len(doc) == 0:
+        return None
+    return detect_em_reconstruction_method_from_block(doc[0])
+
+
+def resolve_em_reconstruction_method_for_merge_side(
+    mmcif_path: Optional[str],
+    profile_hint: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Resolve EM reconstruction method for one merge side.
+
+    Uses mmCIF ``_em_experiment.reconstruction_method`` when present; otherwise ``profile_hint``
+    (normalized PDBx vocabulary string from the caller, e.g. depUI brain page).
+    """
+    if mmcif_path:
+        from_mmcif = detect_em_reconstruction_method_from_mmcif_path(mmcif_path)
+        if from_mmcif is not None:
+            return from_mmcif
+    if profile_hint:
+        return normalize_em_reconstruction_method(profile_hint)
+    return None
+
+
+def em_reconstruction_methods_compatible(
+    reference_method: Optional[str],
+    target_method: Optional[str],
+) -> bool:
+    """True only when both sides resolved to the same reconstruction method."""
+    if reference_method is None or target_method is None:
+        return False
+    return reference_method == target_method
+
+
+def _spec_path_is_em_csv(spec_path) -> bool:
+    return Path(str(spec_path)).name.upper() == "EM.CSV"
+
+
+def gate_em_csv_for_merge_submethod(
+    spec_files: List[str],
+    *,
+    input_file: str,
+    merge_to_file: Optional[str],
+    reference_em_reconstruction_method: Optional[str] = None,
+    merge_target_em_reconstruction_method: Optional[str] = None,
+    ignore_em_submethod_mismatch: bool = False,
+    skipped_specs: Optional[List] = None,
+) -> List[str]:
+    """
+    In merge mode, drop ``EM.csv`` when reconstruction methods differ or are unresolved.
+
+    Returns the filtered spec list. Appends ``(spec, reason)`` to ``skipped_specs`` when skipped.
+    """
+    if not merge_to_file or ignore_em_submethod_mismatch:
+        return list(spec_files)
+    if not any(_spec_path_is_em_csv(s) for s in spec_files):
+        return list(spec_files)
+
+    ref = resolve_em_reconstruction_method_for_merge_side(
+        input_file, reference_em_reconstruction_method
+    )
+    tgt = resolve_em_reconstruction_method_for_merge_side(
+        merge_to_file, merge_target_em_reconstruction_method
+    )
+
+    if em_reconstruction_methods_compatible(ref, tgt):
+        return list(spec_files)
+
+    if ref is None or tgt is None:
+        reason = (
+            "EM reconstruction method could not be resolved on "
+            f"{'reference' if ref is None else 'target'} side "
+            f"(reference: {ref or 'unknown'}, target: {tgt or 'unknown'})"
+        )
+    else:
+        reason = (
+            "EM reconstruction methods do not match "
+            f"(reference: {ref}, target: {tgt})"
+        )
+
+    if skipped_specs is not None:
+        skipped_specs.append(("specs/EM.csv", reason))
+    print(f"Warning: Skipping electron microscopy specification - {reason}")
+    return [s for s in spec_files if not _spec_path_is_em_csv(s)]
 
 
 def block_has_atom_site(block: gemmi.cif.Block) -> bool:
@@ -876,7 +998,10 @@ def write_log_file(log_file, input_file, spec_files, requested_categories, reque
 
 def import_metadata(input_file, spec_files, output_file, merge_to_file=None, merge_output_file=None, 
                    log_file=None, skipped_specs=None, disable_macromolecule_safeguards: bool = False,
-                   overwrite_existing: bool = False):
+                   overwrite_existing: bool = False,
+                   reference_em_reconstruction_method: Optional[str] = None,
+                   merge_target_em_reconstruction_method: Optional[str] = None,
+                   ignore_em_submethod_mismatch: bool = False):
     """
     Import metadata from input mmCIF file based on specification.
     
@@ -890,6 +1015,11 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
         skipped_specs (list, optional): List of tuples (spec_file, reason) for skipped specifications
         disable_macromolecule_safeguards (bool): If True, do not run reference-vs-target macromolecule checks.
         overwrite_existing (bool): If True and merge_to_file is set, replace tags already present in the merge target.
+        reference_em_reconstruction_method (str, optional): PDBx vocabulary hint when reference mmCIF lacks
+            ``_em_experiment.reconstruction_method``.
+        merge_target_em_reconstruction_method (str, optional): PDBx vocabulary hint when merge target mmCIF lacks
+            ``_em_experiment.reconstruction_method`` (e.g. unsubmitted receiving entry).
+        ignore_em_submethod_mismatch (bool): When True, include EM.csv even when submethods differ or are unresolved.
     
     Returns:
         ImportMetadataOutcome: ok, exit_status (0 / 1 / 2), optional safeguard_result
@@ -897,6 +1027,17 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
     # Handle both single file and multiple files
     if isinstance(spec_files, str):
         spec_files = [spec_files]
+    if skipped_specs is None:
+        skipped_specs = []
+    spec_files = gate_em_csv_for_merge_submethod(
+        spec_files,
+        input_file=input_file,
+        merge_to_file=merge_to_file,
+        reference_em_reconstruction_method=reference_em_reconstruction_method,
+        merge_target_em_reconstruction_method=merge_target_em_reconstruction_method,
+        ignore_em_submethod_mismatch=ignore_em_submethod_mismatch,
+        skipped_specs=skipped_specs,
+    )
     spec_files = _resolve_macromolecules_specs_for_import(spec_files, input_file, merge_to_file)
 
     # Parse specification(s)
@@ -1339,6 +1480,19 @@ def main():
         action="store_true",
         help="Disable reference-vs-target macromolecule checks when merging with MACROMOLECULES.csv",
     )
+    parser.add_argument(
+        "--ignore-em-submethod-mismatch",
+        action="store_true",
+        help="When merging with --em, include EM.csv even when reconstruction methods differ or are unresolved",
+    )
+    parser.add_argument(
+        "--reference-em-reconstruction-method",
+        help="PDBx vocabulary hint for reference mmCIF when _em_experiment.reconstruction_method is absent",
+    )
+    parser.add_argument(
+        "--merge-target-em-reconstruction-method",
+        help="PDBx vocabulary hint for merge target mmCIF when _em_experiment.reconstruction_method is absent",
+    )
     
     args = parser.parse_args()
     
@@ -1513,6 +1667,17 @@ def main():
             rel = authors_path
         print(f"Also using authors specification file: {rel}")
     
+    if args.merge_to_file and args.em:
+        spec_files = gate_em_csv_for_merge_submethod(
+            spec_files,
+            input_file=args.input_file,
+            merge_to_file=args.merge_to_file,
+            reference_em_reconstruction_method=args.reference_em_reconstruction_method,
+            merge_target_em_reconstruction_method=args.merge_target_em_reconstruction_method,
+            ignore_em_submethod_mismatch=args.ignore_em_submethod_mismatch,
+            skipped_specs=skipped_specs,
+        )
+
     # Run metadata import
     outcome = import_metadata(
         args.input_file,
@@ -1524,6 +1689,9 @@ def main():
         skipped_specs,
         disable_macromolecule_safeguards=args.no_macromolecule_safeguards,
         overwrite_existing=args.overwrite_existing,
+        reference_em_reconstruction_method=args.reference_em_reconstruction_method,
+        merge_target_em_reconstruction_method=args.merge_target_em_reconstruction_method,
+        ignore_em_submethod_mismatch=args.ignore_em_submethod_mismatch,
     )
 
     if outcome.exit_status == 2:

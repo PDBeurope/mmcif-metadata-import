@@ -2,7 +2,7 @@
 
 This tool imports metadata from mmCIF files into new metadata-only files or into existing models. It uses the gemmi library, with automatic method detection and method-specific CSV specification files.
 
-**Current version:** 0.5.8 — see [CHANGELOG](CHANGELOG.md) for release notes.
+**Current version:** 0.5.9 — see [CHANGELOG](CHANGELOG.md) for release notes.
 
 **Protein Data Bank in Europe (PDBe)** · [pdbe.org](https://www.ebi.ac.uk/pdbe)
 
@@ -44,7 +44,7 @@ pip install -r requirements-notebook.txt
 ## Usage
 
 ```bash
-mmcif-metadata-import <input_file> [--xray] [--xray_serial] [--em] [--nmr] [--macromolecules] [--citation] [--authors] [--funding] [--keywords] [-o output_file] [--merge_to_file target_file] [--overwrite-existing] [--log] [--no-macromolecule-safeguards]
+mmcif-metadata-import <input_file> [--xray] [--xray_serial] [--em] [--nmr] [--macromolecules] [--citation] [--authors] [--funding] [--keywords] [-o output_file] [--merge_to_file target_file] [--overwrite-existing] [--log] [--no-macromolecule-safeguards] [--ignore-em-submethod-mismatch] [--reference-em-reconstruction-method METHOD] [--merge-target-em-reconstruction-method METHOD]
 ```
 
 ### Arguments
@@ -56,6 +56,9 @@ mmcif-metadata-import <input_file> [--xray] [--xray_serial] [--em] [--nmr] [--ma
 - `--nmr`: Optional flag to include NMR specific categories from specs/NMR.csv
 - `--macromolecules`: Optional flag to include macromolecules categories from specs/MACROMOLECULES.csv. When used **together with** `--merge_to_file`, the tool runs **reference-vs-target safeguards** so macromolecule metadata is only merged if polymer chains align (see [Macromolecule merge safeguards](#macromolecule-merge-safeguards)).
 - `--no-macromolecule-safeguards`: When merging with `--macromolecules`, skip reference-vs-target polymer checks (use only if you accept inconsistent macromolecule metadata).
+- `--ignore-em-submethod-mismatch`: When merging with `--em`, include `EM.csv` even when `_em_experiment.reconstruction_method` differs between reference and target, or cannot be resolved. Intended for manual QA — not used by depUI based-on-previous.
+- `--reference-em-reconstruction-method`: PDBx vocabulary hint (e.g. `TOMOGRAPHY`, `SINGLE PARTICLE`) for the reference mmCIF when `_em_experiment.reconstruction_method` is absent.
+- `--merge-target-em-reconstruction-method`: Same as above for the merge target (e.g. an unsubmitted deposition whose profile mmCIF has not yet been populated).
 - `--citation`: Optional flag to include citation categories from specs/CITATION.csv
 - `--authors`: Optional flag to include author categories; the tool selects **`specs/AUTHORS*.csv`** from the merge target (if `--merge_to_file`) or the input file (details under **`--authors`** in [Optional specification files](#optional-specification-files)). Falls back to **`specs/AUTHORS.csv`** if the method cannot be inferred.
 - `--funding`: Optional flag to include funding categories from specs/FUNDING.csv
@@ -73,7 +76,7 @@ mmcif-metadata-import <input_file> [--xray] [--xray_serial] [--em] [--nmr] [--ma
 - **1** — Failure (e.g. unreadable file, no items to import, merge write error).
 - **2** — Merge **succeeded** for non-macromolecule categories, but **macromolecule categories from `MACROMOLECULES.csv` were omitted** because safeguards failed. Use `--log` to see details.
 
-**Python API**: `import_metadata()` returns an **`ImportMetadataOutcome`** named tuple: `ok`, `exit_status` (same semantics as above), and optional `safeguard_result`. Do not rely on a plain boolean return value. Use optional keyword **`overwrite_existing`** (default `False`) to match `--overwrite-existing`. **`merge_metadata_to_file()`** returns **`MergeMetadataResult`** (`success`, skipped and overwritten category/item sets).
+**Python API**: `import_metadata()` returns an **`ImportMetadataOutcome`** named tuple: `ok`, `exit_status` (same semantics as above), and optional `safeguard_result`. Do not rely on a plain boolean return value. Use optional keyword **`overwrite_existing`** (default `False`) to match `--overwrite-existing`. For EM merge mode, optional **`reference_em_reconstruction_method`**, **`merge_target_em_reconstruction_method`**, and **`ignore_em_submethod_mismatch`** match the CLI flags above. **`merge_metadata_to_file()`** returns **`MergeMetadataResult`** (`success`, skipped and overwritten category/item sets).
 
 **Merge Mode**: When `--merge_to_file` is provided, the imported metadata will be merged into the first data block of the specified file. A new file will be created with the name pattern `<originalname>_merged_with_<inputfilename>` (e.g., if merging `target.cif` with metadata from `input.cif`, the output will be `target_merged_with_input.cif`). The original target file is not modified.
 
@@ -141,7 +144,24 @@ mmcif-metadata-import reference.cif --macromolecules --merge_to_file target.cif 
 
 # Disable macromolecule safeguards when merging (not recommended for production)
 mmcif-metadata-import reference.cif --macromolecules --merge_to_file target.cif --no-macromolecule-safeguards
+
+# EM merge: skip EM.csv when reconstruction submethods differ (default)
+mmcif-metadata-import reference_em.cif --em --merge_to_file target_em.cif --log
+# If target lacks reconstruction_method, pass a hint (e.g. unsubmitted deposition)
+mmcif-metadata-import reference_em.cif --em --merge_to_file target_stub.cif \
+  --merge-target-em-reconstruction-method "SINGLE PARTICLE" --log
 ```
+
+## EM merge submethod gate
+
+When **`--em`** and **`--merge_to_file`** are both set, the tool compares **`_em_experiment.reconstruction_method`** on the reference (`input_file`) and merge target. If the values differ, or either side cannot be resolved, **`specs/EM.csv` is skipped** and the reason is recorded under **Skipped Specifications** in the log (other requested specs still merge).
+
+Resolution order per side:
+
+1. Value in the mmCIF file (PDBx deposition vocabulary: `SINGLE PARTICLE`, `TOMOGRAPHY`, `HELICAL`, `SUBTOMOGRAM AVERAGING`, `CRYSTALLOGRAPHY`).
+2. Optional profile hint from **`--reference-em-reconstruction-method`** (reference) or **`--merge-target-em-reconstruction-method`** (target).
+
+Use **`--ignore-em-submethod-mismatch`** to force `EM.csv` inclusion when submethods differ or are unresolved. Metadata-only imports (no `--merge_to_file`) are not gated.
 
 ## Macromolecule merge safeguards
 
@@ -292,6 +312,7 @@ This log file is useful for debugging and understanding what metadata was import
 ## Features
 
 - Optional **`--overwrite-existing`** merge mode to replace conflicting metadata in the target file
+- **EM merge submethod gate** when merging with `--em`: `EM.csv` is included only when `_em_experiment.reconstruction_method` matches on reference and target (profile hints and bypass flag available)
 - **`--authors`** picks **`AUTHORS_EM_MAP_ONLY`**, **`AUTHORS_EM_WITH_ATOM_SITE`**, **`AUTHORS_DEFAULT`**, or **`AUTHORS`** (fallback) from the profile mmCIF’s method and `_atom_site` presence
 - Macromolecule merge safeguards when merging with `--macromolecules` (including **content-based** chain alignment when `label_asym_id` names differ); CLI exit code **2** when only macromolecule categories are skipped; `import_metadata()` returns **`ImportMetadataOutcome`**
 - Supports both `.cif` and `.cif.V[ordinal]` input file extensions
