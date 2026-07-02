@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.9] - 2026-07-02
+
+### Added
+- **Merge mode EM submethod gate (DAOTHER-10724):** when importing with `EM.csv` and `--merge_to_file`, skip EM metadata unless `_em_experiment.reconstruction_method` matches on reference and target (profile hints when mmCIF lacks the field; `--ignore-em-submethod-mismatch` bypass for standalone QA).
+- CLI: `--reference-em-reconstruction-method`, `--merge-target-em-reconstruction-method` for profile hints when mmCIF stubs lack `_em_experiment.reconstruction_method`.
+- Python API: `reference_em_reconstruction_method`, `merge_target_em_reconstruction_method`, `ignore_em_submethod_mismatch` keyword arguments on `import_metadata()`.
+
 ## [0.5.8] - 2026-06-02
 
 ### Fixed
