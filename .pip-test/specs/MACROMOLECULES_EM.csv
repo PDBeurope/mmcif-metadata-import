@@ -1,0 +1,8 @@
+category,item,should_import,type
+_em_entity_assembly,,Y,category
+_em_entity_assembly_naturalsource,,Y,category
+_em_entity_assembly_molwt,,Y,category
+_em_entity_assembly_recombinant,,Y,category
+_em_virus_entity,,Y,category
+_em_virus_natural_host,,Y,category
+_em_virus_shell,,Y,category

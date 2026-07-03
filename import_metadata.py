@@ -34,6 +34,23 @@ from polymer_safeguards import (
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
+def get_spec_dir() -> Optional[Path]:
+    """
+    Directory containing bundled specification CSV files.
+
+    Repository checkouts place them next to ``import_metadata.py``; pip installs
+    place them under ``<sys.prefix>/specs/`` via setuptools ``data-files``.
+    """
+    for candidate in (PROJECT_ROOT / "specs", Path(sys.prefix) / "specs"):
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def _default_spec_dir() -> Path:
+    return get_spec_dir() or PROJECT_ROOT / "specs"
+
+
 class ImportMetadataOutcome(NamedTuple):
     """Result of import_metadata(): ok=False means hard failure; exit_status 2 = partial (macromolecules skipped)."""
 
@@ -55,16 +72,27 @@ class MergeMetadataResult(NamedTuple):
 def resolve_spec_path(spec_path):
     """
     Resolve a specification file path from either:
-    - current working directory (repo usage), or
-    - installed package location (PyPI usage).
+    - current working directory (override / custom specs),
+    - repository layout (``<project>/specs/`` next to this module), or
+    - pip install layout (``<sys.prefix>/specs/``).
     """
     candidate = Path(spec_path)
     if candidate.exists():
         return candidate
 
+    spec_dir = get_spec_dir()
+    if spec_dir is not None:
+        bundled = spec_dir / candidate.name
+        if bundled.exists():
+            return bundled
+
     package_candidate = PROJECT_ROOT / candidate
     if package_candidate.exists():
         return package_candidate
+
+    prefix_candidate = Path(sys.prefix) / candidate
+    if prefix_candidate.exists():
+        return prefix_candidate
 
     return candidate
 
@@ -401,7 +429,7 @@ def resolve_authors_spec_path(profile_mmCIF_path: str, spec_dir: Optional[Path] 
     If the method cannot be inferred (e.g. missing _exptl.method), returns AUTHORS.csv
     (union of all author categories) as a safe default.
     """
-    spec_dir = Path(spec_dir) if spec_dir is not None else PROJECT_ROOT / "specs"
+    spec_dir = Path(spec_dir) if spec_dir is not None else _default_spec_dir()
     fallback = spec_dir / "AUTHORS.csv"
     try:
         profile_doc = gemmi.cif.read(profile_mmCIF_path)
@@ -446,7 +474,7 @@ def resolve_macromolecules_em_supplement_spec_path(
     """Return specs/MACROMOLECULES_EM.csv when the profile deposition is EM, else None."""
     if not profile_indicates_em_method(profile_mmCIF_path, spec_dir):
         return None
-    chosen = (Path(spec_dir) if spec_dir is not None else PROJECT_ROOT / "specs") / "MACROMOLECULES_EM.csv"
+    chosen = (Path(spec_dir) if spec_dir is not None else _default_spec_dir()) / "MACROMOLECULES_EM.csv"
     return chosen if chosen.exists() else None
 
 
@@ -462,7 +490,7 @@ def _resolve_macromolecules_specs_for_import(
     if any(Path(str(s)).name.upper() == "MACROMOLECULES_EM.CSV" for s in spec_files):
         return spec_files
     profile_path = merge_to_file if merge_to_file else input_file
-    supplement = resolve_macromolecules_em_supplement_spec_path(profile_path, PROJECT_ROOT / "specs")
+    supplement = resolve_macromolecules_em_supplement_spec_path(profile_path, _default_spec_dir())
     if supplement is None:
         return spec_files
     return list(spec_files) + [str(supplement)]
@@ -1643,7 +1671,7 @@ def main():
 
     if args.macromolecules:
         profile_path = args.merge_to_file if args.merge_to_file else args.input_file
-        em_mac = resolve_macromolecules_em_supplement_spec_path(profile_path, PROJECT_ROOT / "specs")
+        em_mac = resolve_macromolecules_em_supplement_spec_path(profile_path, _default_spec_dir())
         if em_mac is not None:
             spec_files.append(str(em_mac))
             try:
@@ -1654,7 +1682,7 @@ def main():
 
     if args.authors:
         profile_path = args.merge_to_file if args.merge_to_file else args.input_file
-        authors_path = resolve_authors_spec_path(profile_path, PROJECT_ROOT / "specs")
+        authors_path = resolve_authors_spec_path(profile_path, _default_spec_dir())
         if not authors_path.exists():
             authors_path = resolve_spec_path("specs/AUTHORS.csv")
         if not authors_path.exists():

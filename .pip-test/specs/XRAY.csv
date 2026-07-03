@@ -1,0 +1,8 @@
+category,item,should_import,type
+_diffrn,,Y,category
+_diffrn_detector,,Y,category
+_diffrn_radiation,,Y,category
+_diffrn_radiation_wavelength,,Y,category
+_diffrn_source,,Y,category
+_pdbx_initial_refinement_model,,Y,category
+_software,,Y,category
