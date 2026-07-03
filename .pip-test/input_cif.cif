@@ -1,0 +1,8 @@
+data_input_cif
+_exptl.method 'ELECTRON MICROSCOPY'
+#
+loop_
+_database_2.database_id
+WWPDB
+EMDB
+PDB

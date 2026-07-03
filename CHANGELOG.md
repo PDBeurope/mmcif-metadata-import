@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.10] - 2026-07-03
+
+### Fixed
+- **PyPI install:** specification CSV files are now found when the tool is installed with `pip install mmcif-metadata-import`. Wheels install specs under `<prefix>/specs/`, but the importer only looked next to the module in `site-packages/`, which caused errors such as `specs/EM.csv does not exist` unless users copied `specs/` into the working directory.
+
+### Changed
+- `get_spec_dir()` and updated `resolve_spec_path()` in `import_metadata.py` to resolve bundled specs from both repository and pip install layouts.
+
 ## [0.5.9] - 2026-07-02
 
 ### Added

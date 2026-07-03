@@ -1,0 +1,11 @@
+category,item,should_import,type
+_entity,,Y,category
+_entity_name_com,,Y,category
+_entity_poly,,Y,category
+_entity_poly_seq,,Y,category
+_entity_src_nat,,Y,category
+_entity_src_gen,,Y,category
+_pdbx_entity_src_syn,,Y,category
+_struct_ref,,Y,category
+_struct_ref_seq,,Y,category
+_struct_ref_seq_dif,,Y,category

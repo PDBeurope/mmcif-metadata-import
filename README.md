@@ -2,7 +2,7 @@
 
 This tool imports metadata from mmCIF files into new metadata-only files or into existing models. It uses the gemmi library, with automatic method detection and method-specific CSV specification files.
 
-**Current version:** 0.5.9 — see [CHANGELOG](CHANGELOG.md) for release notes.
+**Current version:** 0.5.10 — see [CHANGELOG](CHANGELOG.md) for release notes.
 
 **Protein Data Bank in Europe (PDBe)** · [pdbe.org](https://www.ebi.ac.uk/pdbe)
 
@@ -19,6 +19,8 @@ The same content lives in the repository as [`docs/user-tutorial.html`](docs/use
 ```bash
 pip install mmcif-metadata-import
 ```
+
+Specification CSV files are installed with the package; you do not need a local `specs/` directory when using the PyPI install.
 
 **From source** (clone the repository): install dependencies, then run with `python import_metadata.py` using the same arguments as below.
 
@@ -183,7 +185,7 @@ The script automatically detects the source method (FROM) from the input mmCIF f
 
 ## Specification Files
 
-All specification CSV files are located in the `specs/` subdirectory.
+All specification CSV files live in the `specs/` subdirectory of the repository, or under `<install-prefix>/specs/` when installed from PyPI. The tool resolves them automatically; a `specs/` folder in your working directory overrides the bundled files if present.
 
 The script uses simplified method-specific CSV files:
 
