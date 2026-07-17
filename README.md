@@ -169,7 +169,7 @@ Use **`--ignore-em-submethod-mismatch`** to force `EM.csv` inclusion when submet
 
 When **`--macromolecules`** and **`--merge_to_file`** are both set, the **reference** file is the positional `input_file` and the **target** is `--merge_to_file`. Before copying categories from `specs/MACROMOLECULES.csv`, the tool checks that polymer chains in the two files **match** (same `label_asym_id` set, or the same polymer content under different chain names; compatible residue counts and sequences per aligned pair). If the check fails, **only** those macromolecule categories are left out of the merge; **other** requested categories (e.g. `--xray` + `--macromolecules`) are still merged, and the CLI exits with **code 2**.
 
-- **Rule codes in logs** (`ALIGN-1-CONTENT-MISMATCH`, etc.) and what each check does: [`docs/macromolecule-safeguards.md`](docs/macromolecule-safeguards.md).
+- **Rule codes in logs** (`ALIGN-0-NO-POLYMER-CHAINS`, `ALIGN-1-CONTENT-MISMATCH`, etc.) and what each check does: [`docs/macromolecule-safeguards.md`](docs/macromolecule-safeguards.md).
 
 **EM map-only merge target:** when the merge target is detected as **`EM_MAP_ONLY`**, macromolecule categories are copied without coordinate safeguards (`blind_copy_em_map_only`, exit **0**). **EM map-only reference** into a target that has **`_atom_site`** is blocked (exit **1**). See the matrix in [`docs/macromolecule-safeguards.md`](docs/macromolecule-safeguards.md).
 

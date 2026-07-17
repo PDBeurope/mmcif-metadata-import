@@ -56,7 +56,7 @@ Map-only detection uses **`detect_method_from_input`** on the merge target / ref
 
 4. **Per aligned chain pair**  
    For each reference polymer chain and its aligned target chain:
-   - **Residue count**: number of distinct **`_atom_site.label_seq_id`** values (polymer positions).
+   - **Residue count**: number of distinct sequence positions from **`_atom_site.label_seq_id`**, or **`auth_seq_id`** when `label_seq_id` is missing / `.` / `?`.
    - **Sequence from coordinates**: a string derived from **`_atom_site.label_comp_id`** per position, in wwPDB-style one-letter form (standard amino acids as one letter; non-standard residues as **`(COMP_ID)`** in parentheses).
    - **Entity mode only**: that atom-site sequence is also compared to **`_entity_poly.pdbx_seq_one_letter_code`** for the entity linked to the chain on that side, and the reference and target entity-poly strings are compared when both are present.
 
@@ -71,13 +71,23 @@ The log / JSON includes **`mode`**:
 | Value | Meaning |
 |-------|---------|
 | **`entity`** | Both files have usable **`_entity`** and **`_struct_asym`** data. Polymer chains are those whose **`_struct_asym.entity_id`** points to an **`_entity.type`** in the polymer list (polypeptide(L/D), polydeoxyribonucleotide, polyribonucleotide, polysaccharide). **`branched`** entity types are **not** included. |
-| **`forced_fallback`** | At least one side does not qualify for the entity path, so **both** sides use **`_atom_site`** heuristics only: chains with **≥ 2** distinct `label_seq_id` values and **at least one** `ATOM` row (so chains that are only `HETATM` are not inferred as polymer here). |
+| **`forced_fallback`** | At least one side does not qualify for the entity path, so **both** sides use **`_atom_site`** heuristics only: chains with **≥ 2** distinct sequence positions and **at least one** `ATOM` row (so chains that are only `HETATM` are not inferred as polymer here). Sequence positions use **`label_seq_id`** when set; otherwise **`auth_seq_id`** (PDB-style mmCIF where `label_seq_id` is `.`). |
 
 ---
 
 ## Failure rule codes
 
 These are the values of the **`rule`** field in each object inside **`failures`** in the JSON.
+
+### `ALIGN-0-NO-POLYMER-CHAINS`
+
+**Meaning:** No polymer chains could be identified on the reference (and typically neither side) for safeguard comparison, so macromolecule categories are **not** merged. This replaces the old vacuous pass when both polymer sets were empty.
+
+**Typical cause:** Missing or unusable coordinates for polymer detection (e.g. session-generated reference without `_atom_site`), or `_atom_site` present but neither `label_seq_id` nor `auth_seq_id` usable. **Exception:** EM map-only merge targets use blind copy upstream and do not hit this rule.
+
+**Fields (among others):** `mode`, `reference_asym_ids`, `target_asym_ids`, `note`.
+
+---
 
 ### `ALIGN-1-CONTENT-MISMATCH`
 
@@ -93,7 +103,7 @@ These are the values of the **`rule`** field in each object inside **`failures`*
 
 ### `ALIGN-2-LENGTH-OR-ATOM-SEQ`
 
-**Meaning:** For a given **`label_asym_id`** that exists on both sides, either the **number of distinct `label_seq_id`** values differs, or the **coordinate-derived sequence string** differs.
+**Meaning:** For a given **`label_asym_id`** that exists on both sides, either the **number of distinct sequence positions** (`label_seq_id`, else `auth_seq_id`) differs, or the **coordinate-derived sequence string** differs.
 
 **Typical cause:** Different construct, missing residues, different numbering coverage, or real sequence mismatch.
 
