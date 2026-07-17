@@ -94,6 +94,74 @@ _software.name foo
         self.assertNotIn("_entity", cats)
         self.assertIn("_software", cats)
 
+    def test_auth_seq_id_fallback_when_label_seq_id_missing(self):
+        """PDB-style mmCIF: label_seq_id is '.' but auth_seq_id has residue numbers."""
+        cif = """data_test
+loop_
+_atom_site.group_PDB
+_atom_site.label_asym_id
+_atom_site.label_seq_id
+_atom_site.auth_seq_id
+_atom_site.label_comp_id
+ATOM A . 1 ALA
+ATOM A . 2 GLY
+ATOM B . 10 SER
+ATOM B . 11 THR
+"""
+        ref = _read(cif)
+        tgt = _read(cif)
+        r = validate_macromolecule_merge(ref, tgt)
+        self.assertTrue(r.ok)
+        self.assertEqual(r.mode, "forced_fallback")
+        self.assertEqual(r.checked_asym_ids, ["A", "B"])
+        n, s = atom_site_sequence_and_count(ref, "A")
+        self.assertEqual(n, 2)
+        self.assertEqual(s, "AG")
+
+    def test_no_vacuous_pass_when_no_polymer_chains(self):
+        """Blank label_seq_id and no auth_seq_id must not vacuous-pass."""
+        cif = """data_test
+loop_
+_atom_site.group_PDB
+_atom_site.label_asym_id
+_atom_site.label_seq_id
+_atom_site.label_comp_id
+ATOM A . ALA
+ATOM A . GLY
+ATOM B . SER
+ATOM B . THR
+"""
+        r = validate_macromolecule_merge(_read(cif), _read(cif))
+        self.assertFalse(r.ok)
+        self.assertTrue(
+            any(f.get("rule") == "ALIGN-0-NO-POLYMER-CHAINS" for f in r.failures)
+        )
+
+    def test_auth_seq_id_detects_mismatch_vs_session_style_empty_ref(self):
+        """Target with auth_seq_id polymers vs empty ref -> ALIGN-1, not vacuous pass."""
+        ref = _read(
+            """data_test
+_software.name foo
+"""
+        )
+        tgt = _read(
+            """data_test
+loop_
+_atom_site.group_PDB
+_atom_site.label_asym_id
+_atom_site.label_seq_id
+_atom_site.auth_seq_id
+_atom_site.label_comp_id
+ATOM Axp . 1 ALA
+ATOM Axp . 2 GLY
+"""
+        )
+        r = validate_macromolecule_merge(ref, tgt)
+        self.assertFalse(r.ok)
+        self.assertTrue(
+            any(f.get("rule") == "ALIGN-1-CONTENT-MISMATCH" for f in r.failures)
+        )
+
     def test_forced_fallback_both(self):
         """No _struct_asym -> forced_fallback; same atom_site on both."""
         cif = """data_test

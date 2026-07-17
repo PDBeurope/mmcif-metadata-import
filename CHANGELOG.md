@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.11] - 2026-07-17
+
+### Fixed
+- **Polymer safeguards / blank `label_seq_id`:** when `_atom_site.label_seq_id` is `.` / `?` (common on PDB-style uploads), polymer chain detection and coordinate-derived sequences fall back to `_atom_site.auth_seq_id`.
+- **No vacuous macromolecule pass:** if no polymer chains can be identified on either side, safeguards now fail with **`ALIGN-0-NO-POLYMER-CHAINS`** instead of passing with empty `checked_asym_ids` (EM map-only blind copy remains upstream and unchanged).
+
+### Documentation
+- [`docs/macromolecule-safeguards.md`](docs/macromolecule-safeguards.md) updated for `auth_seq_id` fallback and `ALIGN-0-NO-POLYMER-CHAINS`.
+
 ## [0.5.10] - 2026-07-03
 
 ### Fixed

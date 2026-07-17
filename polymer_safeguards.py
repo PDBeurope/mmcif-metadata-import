@@ -200,16 +200,44 @@ def _atom_site_columns(block: gemmi.cif.Block) -> Optional[Tuple[List[str], List
     return _loop_as_table(loop)
 
 
+def _atom_site_seq_id_from_row(
+    row: List[str],
+    label_seq_idx: Optional[int],
+    auth_seq_idx: Optional[int],
+) -> str:
+    """
+    Prefer ``_atom_site.label_seq_id`` when present; otherwise ``auth_seq_id``.
+
+    PDB-style / early-upload mmCIF often has ``label_seq_id`` as ``.`` while residue
+    numbers live only in ``auth_seq_id``.
+    """
+    if label_seq_idx is not None:
+        seq = _cif_string_raw(row[label_seq_idx])
+        if not _is_missing_cif_value(seq):
+            return seq
+    if auth_seq_idx is not None:
+        seq = _cif_string_raw(row[auth_seq_idx])
+        if not _is_missing_cif_value(seq):
+            return seq
+    return ""
+
+
 def polymer_asym_ids_fallback(block: gemmi.cif.Block) -> Set[str]:
-    """R-POLY-2: _atom_site heuristic (length >= 2 distinct label_seq_id, >= one ATOM)."""
+    """R-POLY-2: _atom_site heuristic (length >= 2 distinct seq ids, >= one ATOM).
+
+    Sequence positions use ``label_seq_id`` when set; otherwise ``auth_seq_id``.
+    """
     tbl = _atom_site_columns(block)
     if not tbl:
         return set()
     tags, rows = tbl
     ia = _find_column(tags, "_atom_site.label_asym_id")
     iseq = _find_column(tags, "_atom_site.label_seq_id")
+    iauth = _find_column(tags, "_atom_site.auth_seq_id")
     ig = _find_column(tags, "_atom_site.group_PDB")
-    if ia is None or iseq is None or ig is None:
+    if ia is None or ig is None:
+        return set()
+    if iseq is None and iauth is None:
         return set()
 
     by_asym: Dict[str, Set[str]] = {}
@@ -219,13 +247,13 @@ def polymer_asym_ids_fallback(block: gemmi.cif.Block) -> Set[str]:
         asym = _cif_string_raw(row[ia])
         if not asym:
             continue
-        seq = _cif_string_raw(row[iseq])
+        seq = _atom_site_seq_id_from_row(row, iseq, iauth)
         g = _cif_string_raw(row[ig]).upper()
         by_asym.setdefault(asym, set())
         all_het.setdefault(asym, True)
         if g == "ATOM":
             all_het[asym] = False
-        if not _is_missing_cif_value(seq) and seq not in (".",):
+        if seq:
             by_asym[asym].add(seq)
 
     out: Set[str] = set()
@@ -290,8 +318,10 @@ def atom_site_sequence_and_count(
     block: gemmi.cif.Block, asym_id: str
 ) -> Tuple[int, str]:
     """
-    Distinct label_seq_id count and canonical pdbx-style one-letter string from _atom_site.
-    One residue per label_seq_id; first non-missing label_comp_id wins (microheterogeneity).
+    Distinct residue-position count and canonical pdbx-style one-letter string from _atom_site.
+
+    Positions use ``label_seq_id`` when set; otherwise ``auth_seq_id`` (PDB-style mmCIF).
+    One residue per seq id; first non-missing label_comp_id wins (microheterogeneity).
     """
     tbl = _atom_site_columns(block)
     if not tbl:
@@ -299,16 +329,19 @@ def atom_site_sequence_and_count(
     tags, rows = tbl
     ia = _find_column(tags, "_atom_site.label_asym_id")
     iseq = _find_column(tags, "_atom_site.label_seq_id")
+    iauth = _find_column(tags, "_atom_site.auth_seq_id")
     ic = _find_column(tags, "_atom_site.label_comp_id")
-    if ia is None or iseq is None or ic is None:
+    if ia is None or ic is None:
+        return 0, ""
+    if iseq is None and iauth is None:
         return 0, ""
 
     seq_to_comp: Dict[str, str] = {}
     for row in rows:
         if _cif_string_raw(row[ia]) != asym_id:
             continue
-        sid = _cif_string_raw(row[iseq])
-        if _is_missing_cif_value(sid) or sid in (".",):
+        sid = _atom_site_seq_id_from_row(row, iseq, iauth)
+        if not sid:
             continue
         comp = _cif_string_raw(row[ic]).upper()
         if not comp or _is_missing_cif_value(comp):
@@ -803,7 +836,23 @@ def validate_macromolecule_merge(reference_block: gemmi.cif.Block, target_block:
 
     asym_ids = sorted(ref_asym)
     if not asym_ids:
-        return SafeguardResult(True, mode, [], [], chain_pairing, content_aligned)
+        # Fail closed: empty polymer sets must not vacuous-pass and allow wholesale
+        # macromolecule overwrite (e.g. blank label_seq_id before auth_seq_id fallback,
+        # or session CIF without usable coordinates). EM map-only blind copy is handled
+        # upstream in import_metadata and never reaches this function.
+        failures.append(
+            {
+                "rule": "ALIGN-0-NO-POLYMER-CHAINS",
+                "mode": mode,
+                "reference_asym_ids": sorted(ref_asym),
+                "target_asym_ids": sorted(tgt_asym),
+                "note": (
+                    "No polymer chains detected for safeguard comparison; "
+                    "macromolecule import blocked."
+                ),
+            }
+        )
+        return SafeguardResult(False, mode, failures, [], {}, False)
 
     sm_r = _struct_asym_map(reference_block)
     sm_t = _struct_asym_map(target_block)
