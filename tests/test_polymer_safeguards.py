@@ -8,11 +8,17 @@ import gemmi
 from polymer_safeguards import (
     atom_site_sequence_and_count,
     build_polymer_entity_remapping,
+    merge_partial_macromolecule_rows,
     pair_polymer_chains_by_content,
     reconcile_polymer_struct_asym_in_block,
     remap_macromolecule_metadata_for_target,
+    restrict_macromolecule_metadata_to_entities,
     strip_macromolecule_categories,
     validate_macromolecule_merge,
+    _get_loop,
+    _loop_as_table,
+    _find_column,
+    _cif_string_raw,
     _struct_asym_map,
 )
 
@@ -237,8 +243,11 @@ ATOM A 2 GLY
 """
         )
         r = validate_macromolecule_merge(ref, tgt)
-        self.assertFalse(r.ok)
-        self.assertTrue(any(f.get("rule") == "ALIGN-1-CONTENT-MISMATCH" for f in r.failures))
+        self.assertTrue(r.ok)
+        self.assertTrue(r.partial)
+        self.assertEqual(r.imported_asym_ids, ["A"])
+        self.assertEqual(r.skipped_asym_ids, ["B"])
+        self.assertFalse(any(f.get("rule") == "ALIGN-1-CONTENT-MISMATCH" for f in r.failures))
 
     def test_content_mismatch_different_sequence(self):
         ref = _read(
@@ -514,6 +523,257 @@ ATOM Bxp 2 THR B
         sm = _struct_asym_map(new_b)
         self.assertEqual(sm.get("Axp"), "A")
         self.assertEqual(sm.get("Bxp"), "B")
+
+    def _chains_cif(self, chains, descriptions=None, assembly_list=None) -> str:
+        """chains: (asym, entity_id, comp_ids). comp_ids is a list of 3-letter codes."""
+        asym_rows = "\n".join(f"{asym} {eid}" for asym, eid, _comps in chains)
+        entity_ids = []
+        for _asym, eid, _comps in chains:
+            if eid not in entity_ids:
+                entity_ids.append(eid)
+        desc = descriptions or {}
+        ent_rows = "\n".join(
+            f"{eid} polypeptide(L) '{desc.get(eid, eid)}'" for eid in entity_ids
+        )
+        atom_rows = []
+        for asym, eid, comps in chains:
+            for i, comp in enumerate(comps, start=1):
+                atom_rows.append(f"ATOM {asym} {i} {comp} {eid}")
+        assembly = ""
+        if assembly_list is not None:
+            joined = ", ".join(assembly_list)
+            assembly = f"""
+_em_entity_assembly.id 1
+_em_entity_assembly.entity_id_list '{joined}'
+_em_entity_assembly_naturalsource.entity_assembly_id 1
+_em_entity_assembly_naturalsource.organism 'Escherichia coli'
+"""
+        return f"""data_test
+loop_
+_struct_asym.id
+_struct_asym.entity_id
+{asym_rows}
+loop_
+_entity.id
+_entity.type
+_entity.pdbx_description
+{ent_rows}
+loop_
+_atom_site.group_PDB
+_atom_site.label_asym_id
+_atom_site.label_seq_id
+_atom_site.label_comp_id
+_atom_site.label_entity_id
+{chr(10).join(atom_rows)}
+{assembly}
+"""
+
+    def test_partial_import_skips_only_failed_entity(self):
+        ref = _read(
+            self._chains_cif(
+                [("A", "1", ["ALA", "GLY"]), ("H", "2", ["GLY", "TRP"])],
+                {"1": "ProteinA-ref", "2": "PeptideH-ref"},
+            )
+        )
+        tgt = _read(
+            self._chains_cif(
+                [("A", "1", ["ALA", "GLY"]), ("H", "2", ["GLY", "TYR"])],
+                {"1": "ProteinA-old", "2": "PeptideH-old"},
+            )
+        )
+        result = validate_macromolecule_merge(ref, tgt)
+        self.assertTrue(result.ok)
+        self.assertTrue(result.partial)
+        self.assertEqual(result.imported_asym_ids, ["A"])
+        self.assertEqual(result.skipped_asym_ids, ["H"])
+        self.assertEqual(result.imported_entity_ids, ["1"])
+        self.assertEqual(result.skipped_entity_ids, ["2"])
+        self.assertTrue(any(f.get("rule") == "ALIGN-2-LENGTH-OR-ATOM-SEQ" for f in result.failures))
+        self.assertEqual(result.chain_pairing, {"A": "A"})
+
+    def test_multichain_entity_skipped_when_one_chain_mismatches(self):
+        ref = _read(
+            self._chains_cif(
+                [
+                    ("A", "1", ["ALA", "GLY"]),
+                    ("B", "1", ["SER", "THR"]),
+                    ("C", "2", ["ALA", "ALA"]),
+                ]
+            )
+        )
+        tgt = _read(
+            self._chains_cif(
+                [
+                    ("A", "1", ["ALA", "GLY"]),
+                    ("B", "1", ["SER", "MET"]),
+                    ("C", "2", ["ALA", "ALA"]),
+                ]
+            )
+        )
+        result = validate_macromolecule_merge(ref, tgt)
+        self.assertTrue(result.ok)
+        self.assertTrue(result.partial)
+        self.assertEqual(result.imported_asym_ids, ["C"])
+        self.assertEqual(result.skipped_asym_ids, ["A", "B"])
+        self.assertEqual(result.imported_entity_ids, ["2"])
+        self.assertEqual(result.skipped_entity_ids, ["1"])
+        self.assertTrue(any(f.get("rule") == "ALIGN-ENTITY-INCOMPLETE" for f in result.failures))
+
+    def test_no_eligible_entity_is_not_partial(self):
+        ref = _read(self._chains_cif([("A", "1", ["ALA", "GLY"]), ("B", "2", ["SER", "THR"])]))
+        tgt = _read(self._chains_cif([("A", "1", ["ALA", "TRP"]), ("B", "2", ["SER", "MET"])]))
+        result = validate_macromolecule_merge(ref, tgt)
+        self.assertFalse(result.ok)
+        self.assertFalse(result.partial)
+        self.assertEqual(result.imported_asym_ids, [])
+        self.assertEqual(result.chain_pairing, {})
+
+    def test_shared_chain_id_mismatch_is_not_reassigned(self):
+        """A same-ID sequence mismatch stays on that ID even if another chain has the sequence."""
+        ref = _read(
+            self._chains_cif(
+                [("A", "1", ["ALA", "GLY"]), ("H", "2", ["GLY", "TRP"])],
+                {"1": "keep-A", "2": "peptide-H"},
+            )
+        )
+        tgt = _read(
+            self._chains_cif(
+                [
+                    ("A", "1", ["ALA", "GLY"]),
+                    ("H", "2", ["GLY", "TYR"]),
+                    ("Z", "3", ["GLY", "TRP"]),
+                ],
+                {"1": "old-A", "2": "old-H", "3": "extra"},
+            )
+        )
+        result = validate_macromolecule_merge(ref, tgt)
+        self.assertTrue(result.ok)
+        self.assertTrue(result.partial)
+        self.assertEqual(result.chain_pairing, {"A": "A"})
+        self.assertIn("H", result.skipped_asym_ids)
+        self.assertIn("Z", result.skipped_asym_ids)
+        self.assertTrue(any(f.get("label_asym_id") == "H" and f.get("rule") == "ALIGN-2-LENGTH-OR-ATOM-SEQ" for f in result.failures))
+        self.assertNotIn("Z", result.chain_pairing.values())
+
+    def test_partial_content_pairing_imports_unique_profile_only(self):
+        ref = _read(
+            self._chains_cif(
+                [("A", "1", ["ALA", "GLY"]), ("B", "2", ["SER", "THR"])],
+                {"1": "from-ref", "2": "skip-ref"},
+            )
+        )
+        tgt = _read(
+            self._chains_cif(
+                [("Axp", "9", ["ALA", "GLY"]), ("Bxp", "8", ["TRP", "TRP"])],
+                {"9": "old-A", "8": "old-B"},
+            )
+        )
+        result = validate_macromolecule_merge(ref, tgt)
+        self.assertTrue(result.ok)
+        self.assertTrue(result.partial)
+        self.assertTrue(result.content_aligned)
+        self.assertEqual(result.chain_pairing, {"A": "Axp"})
+        self.assertEqual(result.imported_entity_ids, ["9"])
+        self.assertIn("B", result.skipped_asym_ids)
+        self.assertIn("Bxp", result.skipped_asym_ids)
+
+    def test_ambiguous_profiles_do_not_block_a_unique_chain(self):
+        ref = _read(
+            self._chains_cif(
+                [
+                    ("A", "1", ["ALA", "GLY"]),
+                    ("B", "2", ["ALA", "GLY"]),
+                    ("C", "3", ["SER", "THR"]),
+                ]
+            )
+        )
+        tgt = _read(
+            self._chains_cif(
+                [
+                    ("X", "1", ["ALA", "GLY"]),
+                    ("Y", "2", ["ALA", "GLY"]),
+                    ("Z", "3", ["SER", "THR"]),
+                ]
+            )
+        )
+        result = validate_macromolecule_merge(ref, tgt)
+        self.assertTrue(result.ok)
+        self.assertTrue(result.partial)
+        self.assertEqual(result.chain_pairing, {"C": "Z"})
+        self.assertTrue(any(f.get("rule") == "ALIGN-1-AMBIGUOUS-PROFILE" for f in result.failures))
+
+    def test_em_assembly_omitted_when_it_names_a_skipped_entity(self):
+        ref = _read(
+            self._chains_cif(
+                [("A", "1", ["ALA", "GLY"]), ("H", "2", ["GLY", "TRP"])],
+                assembly_list=["1", "2"],
+            )
+        )
+        meta = restrict_macromolecule_metadata_to_entities(
+            ref, ["1"], ["A"], ["1", "2"]
+        )
+        cats = set()
+        for item in meta:
+            if item.pair is not None:
+                cats.add(item.pair[0].split(".", 1)[0])
+            elif item.loop is not None and item.loop.tags:
+                cats.add(item.loop.tags[0].split(".", 1)[0])
+        self.assertIn("_entity", cats)
+        self.assertNotIn("_em_entity_assembly", cats)
+        self.assertNotIn("_em_entity_assembly_naturalsource", cats)
+        descriptions = _descriptions_by_entity(meta)
+        self.assertIn("1", descriptions)
+        self.assertNotIn("2", descriptions)
+
+    def test_row_merge_keeps_ligand_and_failed_entity(self):
+        target = _read(
+            """data_test
+loop_
+_entity.id
+_entity.type
+_entity.pdbx_description
+1 polymer old-A
+2 polymer old-H
+3 non-polymer GLYCEROL
+loop_
+_struct_asym.id
+_struct_asym.entity_id
+A 1
+H 2
+L 3
+"""
+        )
+        incoming = _read(
+            """data_test
+loop_
+_entity.id
+_entity.type
+_entity.pdbx_description
+1 polymer new-A
+loop_
+_entity_src_gen.entity_id
+_entity_src_gen.pdbx_gene_src_scientific_name
+1 'Homo sapiens'
+"""
+        )
+        merged = merge_partial_macromolecule_rows(target, incoming, ["1"])
+        descriptions = _descriptions_by_entity(merged)
+        self.assertEqual(descriptions["1"], "new-A")
+        self.assertEqual(descriptions["2"], "old-H")
+        self.assertEqual(descriptions["3"], "GLYCEROL")
+        self.assertEqual(_struct_asym_map(merged)["H"], "2")
+        src = _entity_src_gen_ids_from_block(merged)
+        self.assertEqual(src, ["1"])
+
+
+def _descriptions_by_entity(block) -> dict:
+    loop = _get_loop(block, "_entity.id")
+    self_tags, rows = _loop_as_table(loop)
+    ie = _find_column(self_tags, "_entity.id")
+    idesc = _find_column(self_tags, "_entity.pdbx_description")
+    return {
+        _cif_string_raw(row[ie]): _cif_string_raw(row[idesc]) for row in rows
+    }
 
 
 def _entity_poly_ids_from_block(block) -> List[str]:

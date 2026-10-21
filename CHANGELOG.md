@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.12] - 2026-10-21
+
+### Changed
+- **Partial macromolecule import:** when some polymer entities pass alignment and others do not, matching entities are merged and mismatched entities are left unchanged. Exit **0** with `partial: true`. Exit **2** remains the outcome only when no polymer entity is eligible.
+- When chain-id sets differ, shared `label_asym_id` values are still compared to each other. Only chains present on one side are paired by unique sequence profile. Ambiguous duplicate profiles (`ALIGN-1-AMBIGUOUS-PROFILE`) and incomplete multi-chain entities (`ALIGN-ENTITY-INCOMPLETE`) stay fail-closed for those entities only.
+- EM assembly / virus categories that reference a skipped polymer entity are omitted for that run; polymer tables for eligible entities are still imported.
+
 ## [0.5.11] - 2026-07-17
 
 ### Fixed

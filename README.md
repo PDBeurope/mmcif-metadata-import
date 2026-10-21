@@ -2,7 +2,7 @@
 
 This tool imports metadata from mmCIF files into new metadata-only files or into existing models. It uses the gemmi library, with automatic method detection and method-specific CSV specification files.
 
-**Current version:** 0.5.10 — see [CHANGELOG](CHANGELOG.md) for release notes.
+**Current version:** 0.5.12 — see [CHANGELOG](CHANGELOG.md) for release notes.
 
 **Protein Data Bank in Europe (PDBe)** · [pdbe.org](https://www.ebi.ac.uk/pdbe)
 
@@ -167,7 +167,7 @@ Use **`--ignore-em-submethod-mismatch`** to force `EM.csv` inclusion when submet
 
 ## Macromolecule merge safeguards
 
-When **`--macromolecules`** and **`--merge_to_file`** are both set, the **reference** file is the positional `input_file` and the **target** is `--merge_to_file`. Before copying categories from `specs/MACROMOLECULES.csv`, the tool checks that polymer chains in the two files **match** (same `label_asym_id` set, or the same polymer content under different chain names; compatible residue counts and sequences per aligned pair). If the check fails, **only** those macromolecule categories are left out of the merge; **other** requested categories (e.g. `--xray` + `--macromolecules`) are still merged, and the CLI exits with **code 2**.
+When **`--macromolecules`** and **`--merge_to_file`** are both set, the **reference** file is the positional `input_file` and the **target** is `--merge_to_file`. Before copying categories from `specs/MACROMOLECULES.csv`, the tool checks polymer chains in the two files (same `label_asym_id`, or a unique content match when names differ; compatible residue counts and sequences per aligned pair). **Matching entities are imported even if other polymers do not match.** An entity is imported only when every polymer chain of that entity matches. Mismatched entities stay as they are on the target, and the CLI still exits **0** (`partial: true` in the log). If **no** polymer entity matches, those macromolecule categories are left out of the merge, **other** requested categories are still merged, and the CLI exits with **code 2**.
 
 - **Rule codes in logs** (`ALIGN-0-NO-POLYMER-CHAINS`, `ALIGN-1-CONTENT-MISMATCH`, etc.) and what each check does: [`docs/macromolecule-safeguards.md`](docs/macromolecule-safeguards.md).
 
