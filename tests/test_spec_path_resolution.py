@@ -31,10 +31,12 @@ class SpecPathResolutionTest(unittest.TestCase):
             previous = os.getcwd()
             try:
                 os.chdir(tmp_path)
-                resolved = im.resolve_spec_path("specs/EM.csv")
+                # Resolve before restoring cwd. A relative path would otherwise
+                # point at the repository specs/ once the test returns there.
+                resolved = im.resolve_spec_path("specs/EM.csv").resolve()
             finally:
                 os.chdir(previous)
-            self.assertEqual(resolved.resolve(), marker.resolve())
+            self.assertEqual(resolved, marker.resolve())
 
     def test_resolve_spec_path_from_pip_install_prefix(self):
         with tempfile.TemporaryDirectory() as tmp:

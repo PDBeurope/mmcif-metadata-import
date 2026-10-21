@@ -29,6 +29,9 @@ from polymer_safeguards import (
     needs_polymer_metadata_id_remap,
     remap_macromolecule_metadata_for_target,
     reconcile_polymer_struct_asym_in_mmcif_file,
+    restrict_macromolecule_metadata_to_entities,
+    merge_partial_macromolecule_rows,
+    categories_in_block,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -52,10 +55,10 @@ def _default_spec_dir() -> Path:
 
 
 class ImportMetadataOutcome(NamedTuple):
-    """Result of import_metadata(): ok=False means hard failure; exit_status 2 = partial (macromolecules skipped)."""
+    """Result of import_metadata(): ok=False means hard failure; exit_status 2 = macromolecules omitted."""
 
     ok: bool
-    exit_status: int  # 0 success, 1 failure, 2 macromolecule categories skipped by safeguards
+    exit_status: int  # 0 success (including partial macromolecule import), 1 failure, 2 macromolecule categories omitted
     safeguard_result: Optional[SafeguardResult]
 
 
@@ -622,12 +625,104 @@ def filter_metadata_block_by_categories(block, *, include=None, exclude=None):
     return out
 
 
+def _write_merged_document(target_doc, merged_block, output_file):
+    out_doc = gemmi.cif.Document()
+    out_doc.add_copied_block(merged_block)
+    for bi in range(1, len(target_doc)):
+        out_doc.add_copied_block(target_doc[bi])
+    out_doc.write_file(output_file)
+
+
+def _merge_partial_macromolecule_metadata(
+    metadata_block,
+    merge_to_file,
+    output_file,
+    overwrite_existing,
+    eligible_target_entity_ids,
+):
+    """
+    Splice non-macromolecule categories with the usual merge rules, then replace only
+    macromolecule rows whose entity id is eligible. Unmatched polymer rows and
+    non-polymer rows on the target are kept.
+    """
+    non_macromolecule_block = filter_metadata_block_by_categories(
+        metadata_block, exclude=MACROMOLECULE_CATEGORIES
+    )
+    macromolecule_only_block = filter_metadata_block_by_categories(
+        metadata_block, include=MACROMOLECULE_CATEGORIES
+    )
+    merge_target = merge_to_file
+    skipped_categories = set()
+    skipped_items = set()
+    overwritten_categories = set()
+    overwritten_items = set()
+
+    if block_has_items(non_macromolecule_block):
+        splice_result = merge_metadata_to_file(
+            non_macromolecule_block,
+            merge_to_file,
+            output_file,
+            overwrite_existing=overwrite_existing,
+            overwrite_macromolecule_categories=False,
+            partial_macromolecule_entity_ids=None,
+        )
+        if not splice_result.success:
+            return splice_result
+        skipped_categories |= splice_result.skipped_categories
+        skipped_items |= splice_result.skipped_items
+        overwritten_categories |= splice_result.overwritten_categories
+        overwritten_items |= splice_result.overwritten_items
+        merge_target = output_file
+
+    if not block_has_items(macromolecule_only_block):
+        if merge_target != output_file:
+            target_doc = gemmi.cif.read(merge_to_file)
+            if len(target_doc) == 0:
+                print("Error: No data blocks found in merge target file")
+                return MergeMetadataResult(False, set(), set(), set(), set())
+            _write_merged_document(target_doc, target_doc[0], output_file)
+        return MergeMetadataResult(
+            True, skipped_categories, skipped_items, overwritten_categories, overwritten_items
+        )
+
+    target_doc = gemmi.cif.read(merge_target)
+    if len(target_doc) == 0:
+        print("Error: No data blocks found in merge target file")
+        return MergeMetadataResult(False, set(), set(), set(), set())
+    target_block = target_doc[0]
+    macro_categories = categories_in_block(macromolecule_only_block) & MACROMOLECULE_CATEGORIES
+    present_categories = categories_in_block(target_block)
+    replaced_categories = macro_categories & present_categories
+    if replaced_categories:
+        mac_overwritten_categories, mac_overwritten_items = overwritten_categories_from_target(
+            target_block, replaced_categories
+        )
+        overwritten_categories |= mac_overwritten_categories
+        overwritten_items |= mac_overwritten_items
+    merged_block = merge_partial_macromolecule_rows(
+        target_block, macromolecule_only_block, eligible_target_entity_ids
+    )
+    _write_merged_document(target_doc, merged_block, output_file)
+    print(
+        f"Successfully merged metadata into: {output_file} "
+        f"(partial macromolecule entity rows)"
+    )
+    return MergeMetadataResult(
+        True,
+        skipped_categories,
+        skipped_items,
+        overwritten_categories,
+        overwritten_items,
+    )
+
+
 def merge_metadata_to_file(
     metadata_block,
     merge_to_file,
     output_file,
     overwrite_existing=False,
     overwrite_macromolecule_categories=False,
+    partial_macromolecule_entity_ids=None,
 ):
     """
     Merge imported metadata into the first data block of a target file.
@@ -637,6 +732,8 @@ def merge_metadata_to_file(
     If overwrite_macromolecule_categories is True (and overwrite_existing is False), removes
     only MACROMOLECULE_CATEGORIES from the target before a gemmi merge (used after content-aligned
     chain remapping so bare target polymer rows are replaced without a global overwrite).
+    If partial_macromolecule_entity_ids is a set, macromolecule categories are merged by entity
+    id: eligible polymer rows are replaced and every other row in those categories is kept.
 
     Args:
         metadata_block (gemmi.cif.Block): Block containing imported metadata
@@ -644,11 +741,21 @@ def merge_metadata_to_file(
         output_file (str): Path to output file where merged result will be written
         overwrite_existing (bool): If True, replace tags already present in the merge target
         overwrite_macromolecule_categories (bool): Replace macromolecule categories only
+        partial_macromolecule_entity_ids: Target entity ids whose macromolecule rows are replaced
     
     Returns:
         MergeMetadataResult
     """
     try:
+        if partial_macromolecule_entity_ids is not None:
+            return _merge_partial_macromolecule_metadata(
+                metadata_block,
+                merge_to_file,
+                output_file,
+                overwrite_existing,
+                partial_macromolecule_entity_ids,
+            )
+
         # Read the target file to check what already exists
         target_doc = gemmi.cif.read(merge_to_file)
         if len(target_doc) == 0:
@@ -1181,6 +1288,7 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
 
     safeguard_result: Optional[SafeguardResult] = None
     macromolecule_skipped = False
+    macromolecule_partial = False
     macromolecule_blind_copy = False
     macromolecule_blocked = False
 
@@ -1262,6 +1370,32 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
                         "Macromolecule categories were not merged (safeguards). Details:\n",
                         safeguard_result.to_json_fragment(),
                     )
+                elif safeguard_result.partial:
+                    before_categories = categories_in_block(new_block)
+                    new_block = restrict_macromolecule_metadata_to_entities(
+                        new_block,
+                        safeguard_result.eligible_ref_entity_ids,
+                        safeguard_result.imported_asym_ids,
+                        safeguard_result.ref_polymer_entity_ids,
+                    )
+                    omitted = sorted(
+                        (before_categories & MACROMOLECULE_CATEGORIES)
+                        - categories_in_block(new_block)
+                    )
+                    if omitted:
+                        safeguard_result.omitted_categories = omitted
+                        imported_categories -= set(omitted)
+                        imported_items = {
+                            item
+                            for item in imported_items
+                            if get_category_from_item(item) not in set(omitted)
+                        }
+                    macromolecule_partial = True
+                    print(
+                        "Macromolecule merge is partial: matching polymer entities will be "
+                        "imported; mismatched polymers will be left unchanged.\n",
+                        safeguard_result.to_json_fragment(),
+                    )
         except Exception as e:
             print(f"Error during macromolecule safeguard validation: {e}")
             return ImportMetadataOutcome(False, 1, None)
@@ -1269,9 +1403,9 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
     if (
         merge_to_file
         and safeguard_result
-        and safeguard_result.content_aligned
         and safeguard_result.chain_pairing
         and not macromolecule_blind_copy
+        and (safeguard_result.content_aligned or safeguard_result.partial)
     ):
         try:
             tgt_doc = gemmi.cif.read(merge_to_file)
@@ -1326,6 +1460,7 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
         force_macromolecule_overwrite = macromolecule_blind_copy
         if (
             not macromolecule_blind_copy
+            and not macromolecule_partial
             and safeguard_result
             and safeguard_result.content_aligned
             and merge_to_file
@@ -1340,14 +1475,23 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
                 force_macromolecule_overwrite = needs_content_id_remap(
                     safeguard_result.chain_pairing
                 )
+        partial_entity_ids = None
+        if macromolecule_partial and safeguard_result is not None:
+            partial_entity_ids = set(safeguard_result.imported_entity_ids)
         merge_result = merge_metadata_to_file(
             new_block,
             merge_to_file,
             merge_output_file,
             overwrite_existing=overwrite_existing,
             overwrite_macromolecule_categories=force_macromolecule_overwrite,
+            partial_macromolecule_entity_ids=partial_entity_ids,
         )
-        if force_macromolecule_overwrite and not overwrite_existing:
+        if macromolecule_partial:
+            print(
+                "Note: macromolecule metadata was merged for matching polymer entities only; "
+                "mismatched polymers were left unchanged."
+            )
+        elif force_macromolecule_overwrite and not overwrite_existing:
             if macromolecule_blind_copy:
                 print(
                     "Note: existing macromolecule categories in the merge target were replaced "
@@ -1423,6 +1567,12 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
                 "Macromolecule blind copy for EM map-only target.\n"
                 + safeguard_result.to_json_fragment()
             )
+        elif macromolecule_partial:
+            safeguard_log = (
+                "Macromolecule categories were imported for polymer entities that passed "
+                "alignment. Entities that failed alignment were left unchanged.\n"
+                + safeguard_result.to_json_fragment()
+            )
         else:
             safeguard_log = "Macromolecule safeguards passed.\n" + safeguard_result.to_json_fragment()
 
@@ -1438,6 +1588,16 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
             if overwrite_existing:
                 actually_imported_categories = imported_categories
                 actually_imported_items = imported_items
+            elif macromolecule_partial:
+                macro_items = {
+                    item
+                    for item in imported_items
+                    if get_category_from_item(item) in MACROMOLECULE_CATEGORIES
+                }
+                actually_imported_categories = (imported_categories - not_imported_categories) | (
+                    imported_categories & MACROMOLECULE_CATEGORIES
+                )
+                actually_imported_items = (imported_items - not_imported_items) | macro_items
             else:
                 # Only count what was actually merged (not skipped)
                 actually_imported_categories = imported_categories - not_imported_categories
@@ -1460,8 +1620,8 @@ def import_metadata(input_file, spec_files, output_file, merge_to_file=None, mer
             not_found_categories,
             not_imported_categories if merge_to_file and not overwrite_existing else None,
             not_imported_items if merge_to_file and not overwrite_existing else None,
-            overwritten_categories if merge_to_file and overwrite_existing else None,
-            overwritten_items if merge_to_file and overwrite_existing else None,
+            overwritten_categories if merge_to_file and (overwrite_existing or macromolecule_partial or force_macromolecule_overwrite) else None,
+            overwritten_items if merge_to_file and (overwrite_existing or macromolecule_partial or force_macromolecule_overwrite) else None,
             safeguard_log,
         )
 
@@ -1722,6 +1882,15 @@ def main():
         ignore_em_submethod_mismatch=args.ignore_em_submethod_mismatch,
     )
 
+    if (
+        outcome.exit_status == 0
+        and outcome.safeguard_result is not None
+        and outcome.safeguard_result.partial
+    ):
+        print(
+            "Macromolecule merge was partial: matching polymer entities were imported; "
+            "mismatched polymers were left unchanged."
+        )
     if outcome.exit_status == 2:
         print("Exit status 2: merge completed but macromolecule categories were skipped (safeguards).")
         sys.exit(2)
